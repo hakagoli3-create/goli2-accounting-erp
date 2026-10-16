@@ -23,25 +23,34 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.ui.theme.PersianGold
+import com.example.util.ExportHelper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +92,7 @@ fun CrmScreen(
     val partyInvoices by viewModel.partyInvoices.collectAsStateWithLifecycle()
 
     var showAddPartyDialog by remember { mutableStateOf(false) }
+    var editingParty by remember { mutableStateOf<PartyEntity?>(null) }
 
     val tabs = listOf("مشتریان", "تامین‌کنندگان", "تجاوز از سقف اعتبار")
 
@@ -241,6 +251,36 @@ fun CrmScreen(
                                         trackColor = Color.LightGray.copy(alpha = 0.4f)
                                     )
                                 }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                HorizontalDivider()
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.selectPartyForStatement(party) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("معین و فاکتورها", fontSize = 11.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    OutlinedButton(
+                                        onClick = { editingParty = party },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("ویرایش مشخصات", fontSize = 11.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -255,6 +295,20 @@ fun CrmScreen(
             party = party,
             invoices = partyInvoices,
             onDismiss = { viewModel.selectPartyForStatement(null) }
+        )
+    }
+
+    // Edit Party Dialog
+    editingParty?.let { p ->
+        EditPartyDialog(
+            party = p,
+            onDismiss = { editingParty = null },
+            onConfirm = { updated ->
+                viewModel.updateParty(updated) {
+                    Toast.makeText(context, "اطلاعات ${updated.name} با موفقیت به‌روزرسانی شد.", Toast.LENGTH_SHORT).show()
+                    editingParty = null
+                }
+            }
         )
     }
 
@@ -317,7 +371,50 @@ fun CustomerLedgerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val context = androidx.compose.ui.platform.LocalContext.current
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val headers = listOf("شماره فاکتور", "تاریخ", "نحوه تسویه", "انبار", "مبلغ (تومان)")
+                            val rows = invoices.map {
+                                listOf(it.invoiceNumber, it.jalaliDate, it.paymentType, it.warehouseName, NumberFormatUtils.formatPrice(it.totalAmount))
+                            }
+                            val f = ExportHelper.exportReportPdf(context, "صورت‌حساب معین: ${party.name}", headers, rows)
+                            if (f != null) ExportHelper.shareFile(context, f, "application/pdf", "معین ${party.name} PDF")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("PDF معین", fontSize = 11.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val headers = listOf("شماره فاکتور", "تاریخ", "تسویه", "مبلغ کل")
+                            val rows = invoices.map {
+                                listOf(it.invoiceNumber, it.jalaliDate, it.paymentType, it.totalAmount.toString())
+                            }
+                            val f = ExportHelper.exportReportCsv(context, "معین_${party.name}", headers, rows)
+                            if (f != null) ExportHelper.shareFile(context, f, "text/csv", "اکسل معین")
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PersianGold)
+                    ) {
+                        Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("اکسل معین", fontSize = 11.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 if (invoices.isEmpty()) {
                     Box(
@@ -530,6 +627,157 @@ fun AddPartyDialog(
                         .testTag("submit_party_button")
                 ) {
                     Text("ثبت در دفتر مخاطبین و مشتریان", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditPartyDialog(
+    party: PartyEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (PartyEntity) -> Unit
+) {
+    var name by remember { mutableStateOf(party.name) }
+    var company by remember { mutableStateOf(party.companyName) }
+    var mobile by remember { mutableStateOf(party.mobile) }
+    var phone by remember { mutableStateOf(party.phone) }
+    var address by remember { mutableStateOf(party.address) }
+    var national by remember { mutableStateOf(party.nationalCode) }
+    var creditText by remember { mutableStateOf(party.creditLimit.toString()) }
+    var balanceText by remember { mutableStateOf(party.currentBalance.toString()) }
+    var notes by remember { mutableStateOf(party.notes) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .padding(vertical = 24.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ویرایش مشخصات طرف‌حساب",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "بستن")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("نام و نام خانوادگی") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = company,
+                    onValueChange = { company = it },
+                    label = { Text("نام فروشگاه / شرکت") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = mobile,
+                        onValueChange = { mobile = it },
+                        label = { Text("شماره همراه") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("تلفن ثابت") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = creditText,
+                        onValueChange = { creditText = it },
+                        label = { Text("سقف اعتبار (تومان)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = balanceText,
+                        onValueChange = { balanceText = it },
+                        label = { Text("مانده بدهکاری (تومان)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("آدرس") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("توضیحات و یادداشت") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = {
+                        if (name.isBlank()) return@Button
+                        val credit = creditText.toLongOrNull() ?: 0L
+                        val balance = balanceText.toLongOrNull() ?: party.currentBalance
+                        onConfirm(
+                            party.copy(
+                                name = name,
+                                companyName = company,
+                                mobile = mobile,
+                                phone = phone,
+                                address = address,
+                                nationalCode = national,
+                                creditLimit = credit,
+                                currentBalance = balance,
+                                notes = notes
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ذخیره تغییرات طرف‌حساب", fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -13,6 +13,7 @@ import com.example.data.repository.AccountingRepository
 import com.example.util.ExportHelper
 import com.example.util.JalaliDate
 import com.example.util.NumberFormatUtils
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +133,9 @@ class AccountingViewModel(
             onSuccess()
         }
     }
+
+    fun getJournalItems(voucherId: Long): Flow<List<JournalItemEntity>> =
+        repository.getJournalItems(voucherId)
 
     fun updateDraftDescription(desc: String) {
         _draftVoucherDescription.value = desc

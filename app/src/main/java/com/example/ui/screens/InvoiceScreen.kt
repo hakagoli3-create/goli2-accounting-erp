@@ -21,12 +21,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Warning
@@ -39,10 +43,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import com.example.ui.components.BarcodeScannerDialog
+import com.example.ui.components.CartItemQuantityDialog
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -156,6 +163,12 @@ fun InvoiceScreen(
                     onPrintInvoice = { viewModel.showReceiptForInvoice(it) },
                     onExportPdf = { viewModel.exportPdf(context, it, storeProfile) },
                     onExportCsv = { viewModel.exportCsv(context, it, storeProfile) },
+                    onVoidInvoice = { inv ->
+                        viewModel.voidInvoice(inv) {}
+                    },
+                    onConvertProforma = { inv ->
+                        viewModel.convertProformaToFinal(inv) {}
+                    },
                     onExportAllPdf = {
                         val headers = listOf("شماره فاکتور", "تاریخ", "نام طرف حساب", "نوع تسویه", "مبلغ کل (تومان)")
                         val rows = invoices.map {
@@ -182,13 +195,20 @@ fun InvoiceScreen(
                     applyTax = applyTax,
                     pricingMode = pricingMode,
                     grandTotal = grandTotal,
+                    directExpense = viewModel.directExpenseAmount.collectAsStateWithLifecycle().value,
+                    directExpenseType = viewModel.directExpenseType.collectAsStateWithLifecycle().value,
+                    issueAsProforma = viewModel.issueAsProforma.collectAsStateWithLifecycle().value,
+                    onDirectExpenseChange = { amt, typ -> viewModel.setDirectExpense(amt, typ) },
+                    onToggleProforma = { viewModel.setIssueAsProforma(it) },
                     onPricingModeChange = { viewModel.setPricingMode(it) },
                     onSelectParty = { viewModel.selectParty(it) },
                     onAddToCart = { p, isPrimary -> viewModel.addToCart(p, isPrimary = isPrimary) },
                     onToggleUnit = { idx -> viewModel.toggleCartItemUnit(idx) },
                     onUpdateQuantity = { idx, q -> viewModel.updateCartItemQuantity(idx, q) },
+                    onSetCartItemQuantities = { idx, c, u -> viewModel.setCartItemQuantities(idx, c, u) },
                     onDiscountChange = { viewModel.setDiscount(it) },
                     onToggleTax = { viewModel.toggleTax(it) },
+                    onScanBarcode = { viewModel.scanBarcode(it) },
                     onOpenSettlement = {
                         if (cartItems.isEmpty()) {
                             Toast.makeText(context, "سبد فاکتور خالی است.", Toast.LENGTH_SHORT).show()
@@ -224,7 +244,7 @@ fun InvoiceScreen(
                     notes = notes
                 ) {
                     showSettlementDialog = false
-                    Toast.makeText(context, "فاکتور رسمی با موفقیت ثبت قطعی گردید.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "فاکتور با موفقیت ثبت گردید.", Toast.LENGTH_SHORT).show()
                     selectedTab = 0
                 }
             }
@@ -239,7 +259,18 @@ fun InvoiceScreen(
             onExportPdf = { viewModel.exportPdf(context, invoiceWithItems, storeProfile) },
             onExportCsv = { viewModel.exportCsv(context, invoiceWithItems, storeProfile) },
             onShareText = { viewModel.shareText(context, invoiceWithItems, storeProfile) },
-            onPrintReceipt = { viewModel.showReceiptForInvoice(invoiceWithItems) }
+            onPrintReceipt = { viewModel.showReceiptForInvoice(invoiceWithItems) },
+            onVoidInvoice = {
+                viewModel.voidInvoice(invoiceWithItems) {
+                    viewModel.closeInvoiceDetails()
+                }
+            },
+            onConvertProforma = {
+                viewModel.convertProformaToFinal(invoiceWithItems) {
+                    viewModel.closeInvoiceDetails()
+                }
+            },
+            grossProfit = if (currentRole.canViewProfit) viewModel.calculateGrossProfit(invoiceWithItems) else null
         )
     }
 
@@ -258,6 +289,8 @@ private fun InvoiceListContent(
     onPrintInvoice: (InvoiceWithItems) -> Unit,
     onExportPdf: (InvoiceWithItems) -> Unit,
     onExportCsv: (InvoiceWithItems) -> Unit,
+    onVoidInvoice: (InvoiceWithItems) -> Unit,
+    onConvertProforma: (InvoiceWithItems) -> Unit,
     onExportAllPdf: () -> Unit,
     onExportAllCsv: () -> Unit
 ) {
@@ -312,12 +345,21 @@ private fun InvoiceListContent(
 
         items(invoices) { inv ->
             val invoice = inv.invoice
+            val isProforma = invoice.status == "PROFORMA"
+            val isVoid = invoice.status == "VOID"
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onOpenDetails(inv) },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(
+                    containerColor = when {
+                        isVoid -> Color(0xFFFFEBEE)
+                        isProforma -> Color(0xFFFFFDE7)
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+                ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -331,24 +373,40 @@ private fun InvoiceListContent(
                                 text = "فاکتور ${invoice.invoiceNumber}",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "(${invoice.jalaliDate})",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            val modeBadge = if (invoice.pricingMode == "WHOLESALE") "عمده" else "تکی"
+
+                            // Status badge
+                            val statusTitle = when {
+                                isVoid -> "ابطال شده"
+                                isProforma -> "پیش‌فاکتور"
+                                else -> if (invoice.pricingMode == "WHOLESALE") "عمده" else "تکی"
+                            }
+                            val statusBg = when {
+                                isVoid -> AccountingCreditRed.copy(alpha = 0.2f)
+                                isProforma -> PersianGold.copy(alpha = 0.25f)
+                                else -> MaterialTheme.colorScheme.primaryContainer
+                            }
+                            val statusFg = when {
+                                isVoid -> AccountingCreditRed
+                                isProforma -> Color(0xFF8D6E63)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
                             Card(
                                 shape = RoundedCornerShape(6.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (invoice.pricingMode == "WHOLESALE") PersianGold.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer
-                                )
+                                colors = CardDefaults.cardColors(containerColor = statusBg)
                             ) {
                                 Text(
-                                    text = modeBadge,
+                                    text = statusTitle,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
+                                    color = statusFg,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -392,6 +450,39 @@ private fun InvoiceListContent(
                             )
                         )
                     }
+
+                    if (isProforma || !isVoid) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isProforma) {
+                                androidx.compose.material3.Button(
+                                    onClick = { onConvertProforma(inv) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccountingDebitGreen)
+                                ) {
+                                    Text("تبدیل به فاکتور نهایی", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            if (!isVoid) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { onVoidInvoice(inv) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = AccountingCreditRed)
+                                ) {
+                                    Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("ابطال", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -409,13 +500,20 @@ private fun InvoiceEditorContent(
     applyTax: Boolean,
     pricingMode: String,
     grandTotal: Long,
+    directExpense: Long,
+    directExpenseType: String,
+    issueAsProforma: Boolean,
+    onDirectExpenseChange: (Long, String) -> Unit,
+    onToggleProforma: (Boolean) -> Unit,
     onPricingModeChange: (String) -> Unit,
     onSelectParty: (PartyEntity?) -> Unit,
     onAddToCart: (ProductEntity, Boolean) -> Unit,
     onToggleUnit: (Int) -> Unit,
     onUpdateQuantity: (Int, Double) -> Unit,
+    onSetCartItemQuantities: (Int, Double, Double) -> Unit,
     onDiscountChange: (Long) -> Unit,
     onToggleTax: (Boolean) -> Unit,
+    onScanBarcode: (String) -> Unit,
     onOpenSettlement: () -> Unit
 ) {
     var customerMenuExpanded by remember { mutableStateOf(false) }
@@ -423,6 +521,35 @@ private fun InvoiceEditorContent(
     var selectedProductToAdd by remember { mutableStateOf<ProductEntity?>(null) }
     var usePrimaryUnit by remember { mutableStateOf(true) } // کارتن vs عدد
     var discountText by remember { mutableStateOf(if (discount > 0) discount.toString() else "") }
+    var directExpenseText by remember { mutableStateOf(if (directExpense > 0) directExpense.toString() else "") }
+    var expenseTypeInput by remember { mutableStateOf(directExpenseType.ifBlank { "کرایه حمل و باربری" }) }
+
+    var productSearchQuery by remember { mutableStateOf("") }
+    var showScanner by remember { mutableStateOf(false) }
+    var editingCartIndex by remember { mutableStateOf<Int?>(null) }
+
+    if (showScanner) {
+        BarcodeScannerDialog(
+            title = "اسکن بارکد کالا برای فاکتور",
+            onDismiss = { showScanner = false },
+            onBarcodeScanned = { barcode ->
+                onScanBarcode(barcode)
+                showScanner = false
+            }
+        )
+    }
+
+    editingCartIndex?.let { idx ->
+        if (idx in cartItems.indices) {
+            CartItemQuantityDialog(
+                cartItem = cartItems[idx],
+                onDismiss = { editingCartIndex = null },
+                onConfirmQuantity = { cartons, units ->
+                    onSetCartItemQuantities(idx, cartons, units)
+                }
+            )
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -573,21 +700,63 @@ private fun InvoiceEditorContent(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "افزودن قلم به فاکتور",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "افزودن قلم به فاکتور",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Button(
+                            onClick = { showScanner = true },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("اسکن بارکد", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
+
+                    // Instant search field with first letter matching
+                    OutlinedTextField(
+                        value = productSearchQuery,
+                        onValueChange = {
+                            productSearchQuery = it
+                            productMenuExpanded = true
+                        },
+                        placeholder = { Text("جستجوی سریع با تایپ حرف اول، نام یا کد...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("invoice_search_product_fast"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val filteredProducts = products.filter {
+                        productSearchQuery.isBlank() ||
+                                it.name.contains(productSearchQuery, ignoreCase = true) ||
+                                it.code.contains(productSearchQuery, ignoreCase = true) ||
+                                it.barcode.contains(productSearchQuery, ignoreCase = true)
+                    }
 
                     ExposedDropdownMenuBox(
                         expanded = productMenuExpanded,
                         onExpandedChange = { productMenuExpanded = !productMenuExpanded }
                     ) {
                         OutlinedTextField(
-                            value = selectedProductToAdd?.name ?: "انتخاب کالا از انبار...",
+                            value = selectedProductToAdd?.name ?: "انتخاب کالا از انبار (${filteredProducts.size} کالا)...",
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("کالا") },
+                            label = { Text("کالای انتخابی") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = productMenuExpanded) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -598,10 +767,19 @@ private fun InvoiceEditorContent(
                             expanded = productMenuExpanded,
                             onDismissRequest = { productMenuExpanded = false }
                         ) {
-                            products.forEach { prod ->
+                            filteredProducts.forEach { prod ->
                                 val priceToShow = if (pricingMode == "WHOLESALE") prod.wholesalePrice else prod.retailPrice
                                 DropdownMenuItem(
-                                    text = { Text("${prod.name} | موجودی: ${prod.formatStockDisplay()} | فی: ${NumberFormatUtils.formatPrice(priceToShow)}") },
+                                    text = {
+                                        Column {
+                                            Text(prod.name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text(
+                                                text = "موجودی: ${prod.formatStockDisplay()} | فی واحد: ${NumberFormatUtils.formatPrice(priceToShow)}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
                                     onClick = {
                                         selectedProductToAdd = prod
                                         productMenuExpanded = false
@@ -655,7 +833,7 @@ private fun InvoiceEditorContent(
                         ) {
                             Icon(imageVector = Icons.Default.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("افزودن این کالا به پیش‌فاکتور")
+                            Text("افزودن این کالا به فاکتور")
                         }
                     }
                 }
@@ -666,7 +844,7 @@ private fun InvoiceEditorContent(
         if (cartItems.isNotEmpty()) {
             item {
                 Text(
-                    text = "اقلام پیش‌فاکتور (${cartItems.size} ردیف):",
+                    text = "اقلام فاکتور (${cartItems.size} ردیف) - برای تغییر تعداد کارتن/تکی روی مقدار کلیک کنید:",
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
             }
@@ -696,7 +874,7 @@ private fun InvoiceEditorContent(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "(تغییر به ${if (item.isPrimaryUnit) item.product.secondaryUnit else item.product.primaryUnit})",
+                                    text = "(تغییر واحد)",
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold,
@@ -715,14 +893,88 @@ private fun InvoiceEditorContent(
                             IconButton(onClick = { onUpdateQuantity(index, item.quantity - 1.0) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "کاهش", tint = Color.Gray)
                             }
-                            Text(
-                                text = NumberFormatUtils.toPersianDigits(item.quantity.toString()),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
+
+                            // Clickable quantity badge opening CartItemQuantityDialog
+                            Card(
+                                onClick = { editingCartIndex = index },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${NumberFormatUtils.toPersianDigits(item.quantity.toString())} ${item.unitName}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+
                             IconButton(onClick = { onUpdateQuantity(index, item.quantity + 1.0) }) {
                                 Icon(Icons.Default.Add, contentDescription = "افزایش", tint = MaterialTheme.colorScheme.primary)
                             }
+                        }
+                    }
+                }
+            }
+
+            // Direct Expenses & Proforma Section
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "هزینه مستقیم فاکتور (کرایه حمل، بسته‌بندی، انبارداری):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = directExpenseText,
+                                onValueChange = {
+                                    directExpenseText = it
+                                    onDirectExpenseChange(it.toLongOrNull() ?: 0L, expenseTypeInput)
+                                },
+                                label = { Text("مبلغ هزینه (تومان)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = expenseTypeInput,
+                                onValueChange = {
+                                    expenseTypeInput = it
+                                    onDirectExpenseChange(directExpenseText.toLongOrNull() ?: 0L, it)
+                                },
+                                label = { Text("شرح هزینه") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("صدور به صورت پیش‌فاکتور (Proforma):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("پیش‌فاکتور از موجودی انبار کسر نمی‌کند و بعداً قابل تأیید است", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = issueAsProforma, onCheckedChange = onToggleProforma)
                         }
                     }
                 }
@@ -781,7 +1033,7 @@ private fun InvoiceEditorContent(
                         ) {
                             Icon(imageVector = Icons.Default.Payments, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("انتخاب نوع تسویه و ثبت نهایی فاکتور")
+                            Text(if (issueAsProforma) "ثبت پیش‌فاکتور" else "انتخاب نوع تسویه و ثبت نهایی فاکتور")
                         }
                     }
                 }

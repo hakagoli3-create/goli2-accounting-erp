@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,15 +23,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,11 +48,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -105,6 +114,13 @@ fun AccountingScreen(
     val draftItems by viewModel.draftItems.collectAsStateWithLifecycle()
     val operationMessage by viewModel.operationMessage.collectAsStateWithLifecycle()
 
+    var viewingVoucher by remember { mutableStateOf<JournalEntryEntity?>(null) }
+    var editingVoucher by remember { mutableStateOf<JournalEntryEntity?>(null) }
+    val viewingVoucherItems by remember(viewingVoucher) {
+        if (viewingVoucher != null) viewModel.getJournalItems(viewingVoucher!!.id)
+        else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+
     LaunchedEffect(operationMessage) {
         operationMessage?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
@@ -141,6 +157,7 @@ fun AccountingScreen(
                 0 -> AccountTreeContent(groups, generals, subsidiaries)
                 1 -> JournalEntriesContent(
                     entries = journalEntries,
+                    canManage = currentRole.canManageUsers,
                     onExportPdf = {
                         val headers = listOf("شماره سند", "تاریخ سند", "شرح سند", "وضعیت")
                         val rows = journalEntries.map {
@@ -156,6 +173,14 @@ fun AccountingScreen(
                         }
                         val f = ExportHelper.exportReportCsv(context, "فهرست اسناد روزنامه", headers, rows)
                         if (f != null) ExportHelper.shareFile(context, f, "text/csv", "خروجی اکسل اسناد")
+                    },
+                    onViewDetails = { viewingVoucher = it },
+                    onEditVoucher = { editingVoucher = it },
+                    onVoidVoucher = { entry ->
+                        viewModel.voidVoucher(entry) {}
+                    },
+                    onDeleteVoucher = { entry ->
+                        viewModel.deleteVoucher(entry.id) {}
                     }
                 )
                 2 -> CreateJournalVoucherContent(
@@ -187,6 +212,26 @@ fun AccountingScreen(
                 )
             }
         }
+    }
+
+    viewingVoucher?.let { v ->
+        JournalVoucherDetailsDialog(
+            voucher = v,
+            items = viewingVoucherItems,
+            onDismiss = { viewingVoucher = null }
+        )
+    }
+
+    editingVoucher?.let { v ->
+        EditJournalVoucherDialog(
+            voucher = v,
+            onDismiss = { editingVoucher = null },
+            onConfirm = { newDesc, newDate ->
+                viewModel.updateVoucher(v, newDesc, newDate) {
+                    editingVoucher = null
+                }
+            }
+        )
     }
 }
 
@@ -407,8 +452,13 @@ private fun AccountTreeContent(
 @Composable
 private fun JournalEntriesContent(
     entries: List<JournalEntryEntity>,
+    canManage: Boolean,
     onExportPdf: () -> Unit,
-    onExportCsv: () -> Unit
+    onExportCsv: () -> Unit,
+    onViewDetails: (JournalEntryEntity) -> Unit,
+    onEditVoucher: (JournalEntryEntity) -> Unit,
+    onVoidVoucher: (JournalEntryEntity) -> Unit,
+    onDeleteVoucher: (JournalEntryEntity) -> Unit
 ) {
     if (entries.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -452,10 +502,13 @@ private fun JournalEntriesContent(
         }
 
         items(entries) { entry ->
+            val isVoid = entry.status == "VOID"
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isVoid) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surface
+                ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -468,7 +521,7 @@ private fun JournalEntriesContent(
                             Icon(
                                 imageVector = Icons.Default.Receipt,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (isVoid) AccountingCreditRed else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -493,7 +546,8 @@ private fun JournalEntriesContent(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -510,11 +564,238 @@ private fun JournalEntriesContent(
                             )
                         }
                         Text(
-                            text = "وضعیت: ${if (entry.status == "FINAL") "قطعی" else "پیش‌نویس"}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "وضعیت: ${if (isVoid) "باطل شده" else "قطعی"}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (isVoid) AccountingCreditRed else MaterialTheme.colorScheme.primary
+                            )
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { onViewDetails(entry) },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مشاهده اقلام", fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        OutlinedButton(
+                            onClick = { onEditVoucher(entry) },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ویرایش", fontSize = 11.sp)
+                        }
+                        if (!isVoid) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            OutlinedButton(
+                                onClick = { onVoidVoucher(entry) },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccountingCreditRed)
+                            ) {
+                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("ابطال", fontSize = 11.sp)
+                            }
+                        }
+                        if (canManage) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = { onDeleteVoucher(entry) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "حذف", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun JournalVoucherDetailsDialog(
+    voucher: JournalEntryEntity,
+    items: List<com.example.data.model.JournalItemEntity>,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .padding(vertical = 24.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "سند مالی شماره ${voucher.voucherNumber}",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "تاریخ سند: ${voucher.jalaliDate} | وضعیت: ${if (voucher.status == "VOID") "باطل شده" else "قطعی"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (voucher.status == "VOID") AccountingCreditRed else MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "بستن")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "شرح سند: ${voucher.description}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "آرتیکل‌ها و ردیف‌های دوبل (${items.size} ردیف):",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("کد و شرح حساب", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(2f))
+                            Text("بدهکار (تومان)", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.2f))
+                            Text("بستانکار (تومان)", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.2f))
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                        if (items.isEmpty()) {
+                            Text("سطری برای این سند بارگذاری نشد یا سند دستی بدون آرتیکل است.", fontSize = 11.sp, modifier = Modifier.padding(8.dp))
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                            ) {
+                                items(items) { itm ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(2f)) {
+                                            Text("معین ${itm.subsidiaryCode}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(itm.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(
+                                            text = if (itm.debit > 0) NumberFormatUtils.formatPrice(itm.debit) else "-",
+                                            fontSize = 11.sp,
+                                            color = if (itm.debit > 0) AccountingDebitGreen else Color.Gray,
+                                            fontWeight = if (itm.debit > 0) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier.weight(1.2f)
+                                        )
+                                        Text(
+                                            text = if (itm.credit > 0) NumberFormatUtils.formatPrice(itm.credit) else "-",
+                                            fontSize = 11.sp,
+                                            color = if (itm.credit > 0) AccountingCreditRed else Color.Gray,
+                                            fontWeight = if (itm.credit > 0) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier.weight(1.2f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        val totalDebit = items.sumOf { it.debit }
+                        val totalCredit = items.sumOf { it.credit }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("جمع کل:", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(2f))
+                            Text(NumberFormatUtils.formatPrice(totalDebit), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccountingDebitGreen, modifier = Modifier.weight(1.2f))
+                            Text(NumberFormatUtils.formatPrice(totalCredit), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccountingCreditRed, modifier = Modifier.weight(1.2f))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("بستن جزئیات سند")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditJournalVoucherDialog(
+    voucher: JournalEntryEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (newDesc: String, newDate: String) -> Unit
+) {
+    var desc by remember { mutableStateOf(voucher.description) }
+    var date by remember { mutableStateOf(voucher.jalaliDate) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("ویرایش سند شماره ${voucher.voucherNumber}", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    label = { Text("شرح سند حسابداری") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = { date = it },
+                    label = { Text("تاریخ سند (مثال: ۱۴۰۳/۰۷/۲۵)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss) { Text("انصراف") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = { onConfirm(desc, date) }) { Text("ذخیره تغییرات") }
                 }
             }
         }
