@@ -41,6 +41,19 @@ class InvoiceRepository(
     ): Long {
         val invoiceId = invoiceDao.createInvoiceWithItems(invoice, items)
 
+        // اگر پیش‌فاکتور (PROFORMA) باشد، از انبار کسر نمی‌شود و سند قطعی حسابداری صادر نمی‌گردد
+        if (invoice.status == "PROFORMA") {
+            return invoiceId
+        }
+
+        applyInvoiceEffects(invoice.copy(id = invoiceId), items)
+        return invoiceId
+    }
+
+    /**
+     * اعمال اثرات انبارداری، حسابداری، و خزانه‌داری یک فاکتور قطعی
+     */
+    private suspend fun applyInvoiceEffects(invoice: InvoiceEntity, items: List<InvoiceItemEntity>) {
         // 1. به روزرسانی کاردکس و موجودی انبار برای هر قلم
         for (item in items) {
             val stockDelta = if (invoice.invoiceType in listOf("SALE", "POS_SALE")) {
@@ -64,7 +77,7 @@ class InvoiceRepository(
             inventoryDao.adjustStock(item.productId, stockDelta)
         }
 
-        // 2. به روزرسانی مانده حساب طرف حساب (در صورت فروش نسیه یا ثبت برای شخص خاص)
+        // 2. به روزرسانی مانده حساب طرف حساب
         if (invoice.partyId != null) {
             val debtChange = when (invoice.paymentType) {
                 "CREDIT" -> invoice.totalAmount
@@ -142,7 +155,7 @@ class InvoiceRepository(
             )
         }
 
-        // ردیف بستانکار: فروش کالا
+        // ردیف بستانکار: فروش کالا و خدمات
         journalItems.add(
             JournalItemEntity(
                 voucherId = 0L,
@@ -170,8 +183,116 @@ class InvoiceRepository(
                 journalItems
             )
         }
+    }
 
-        return invoiceId
+    /**
+     * تبدیل سریع پیش‌فاکتور به فاکتور فروش قطعی
+     */
+    suspend fun convertProformaToFinal(invoiceId: Long): Boolean {
+        val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+        val invoice = invoiceWithItems.invoice
+        if (invoice.status != "PROFORMA") return false
+
+        val updatedInvoice = invoice.copy(status = "FINAL")
+        invoiceDao.updateInvoice(updatedInvoice)
+        applyInvoiceEffects(updatedInvoice, invoiceWithItems.items)
+        return true
+    }
+
+    /**
+     * ابطال تمامی اثرات فاکتور و علامت‌گذاری به عنوان باطل شده (VOID)
+     */
+    suspend fun voidInvoice(invoiceId: Long): Boolean {
+        val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+        val invoice = invoiceWithItems.invoice
+        if (invoice.status == "VOID") return false
+
+        // اگر فاکتور قطعی بود، اثرات انبارداری، مشتری و خزانه‌داری را معکوس می‌کنیم
+        if (invoice.status == "FINAL") {
+            // 1. برگشت موجودی به انبار
+            for (item in invoiceWithItems.items) {
+                val reverseStock = item.quantityInSecondary // بازگشت به انبار
+                inventoryDao.insertMovement(
+                    InventoryMovementEntity(
+                        productId = item.productId,
+                        warehouseId = invoice.warehouseId,
+                        jalaliDate = JalaliDate.now().toStandardString(),
+                        documentType = "RETURN_SALE",
+                        referenceNumber = "VOID-${invoice.invoiceNumber}",
+                        quantitySecondary = reverseStock,
+                        unitPrice = item.unitPrice,
+                        description = "ابطال فاکتور ${invoice.invoiceNumber} - برگشت ${item.productName} به انبار"
+                    )
+                )
+                inventoryDao.adjustStock(item.productId, reverseStock)
+            }
+
+            // 2. برگشت مانده حساب بدهی مشتری
+            if (invoice.partyId != null) {
+                val debtChange = when (invoice.paymentType) {
+                    "CREDIT" -> invoice.totalAmount
+                    "MIXED" -> invoice.creditAmount
+                    else -> 0L
+                }
+                if (debtChange > 0) {
+                    partyDao.updatePartyBalance(invoice.partyId, -debtChange)
+                }
+            }
+
+            // 3. کسر از صندوق / بانک بابت برگشت وجه
+            if (invoice.cashAmount > 0) {
+                treasuryDao.updateCashBalance(invoice.cashDeskId, -invoice.cashAmount)
+            }
+            if (invoice.posAmount > 0) {
+                treasuryDao.updateBankBalance(invoice.bankAccountId, -invoice.posAmount)
+            }
+
+            // 4. صدور سند معکوس در حسابداری
+            val nextVoucher = accountingDao.getMaxVoucherNumber() + 1
+            accountingDao.createVoucherWithItems(
+                JournalEntryEntity(
+                    voucherNumber = nextVoucher,
+                    jalaliDate = JalaliDate.now().toStandardString(),
+                    description = "سند ابطال فاکتور فروش شماره ${invoice.invoiceNumber}",
+                    isBalanced = true,
+                    status = "FINAL"
+                ),
+                listOf(
+                    JournalItemEntity(
+                        voucherId = 0L,
+                        generalCode = 601,
+                        subsidiaryCode = 60101,
+                        partyId = invoice.partyId,
+                        description = "ابطال درآمد فروش فاکتور ${invoice.invoiceNumber}",
+                        debit = invoice.totalAmount,
+                        credit = 0L
+                    ),
+                    JournalItemEntity(
+                        voucherId = 0L,
+                        generalCode = 101,
+                        subsidiaryCode = if (invoice.posAmount > 0) 10102 else 10101,
+                        partyId = null,
+                        description = "برگشت تسویه فاکتور باطل شده ${invoice.invoiceNumber}",
+                        debit = 0L,
+                        credit = invoice.totalAmount
+                    )
+                )
+            )
+        }
+
+        invoiceDao.setInvoiceStatus(invoiceId, "VOID")
+        return true
+    }
+
+    suspend fun deleteInvoice(invoiceId: Long): Boolean {
+        voidInvoice(invoiceId)
+        val invoice = invoiceDao.getInvoiceById(invoiceId)
+        if (invoice != null) {
+            invoiceDao.deleteInvoice(invoice)
+            invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
+            return true
+        }
+        return false
     }
 
     suspend fun generateNextInvoiceNumber(): String {

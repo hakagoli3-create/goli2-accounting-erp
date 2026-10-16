@@ -91,4 +91,23 @@ class AccountingRepository(private val dao: AccountingDao) {
             )
         }.filter { it.totalDebit > 0 || it.totalCredit > 0 }
     }
+
+    suspend fun voidVoucher(voucherId: Long) {
+        dao.voidJournalEntry(voucherId)
+    }
+
+    suspend fun updateVoucher(entry: JournalEntryEntity) {
+        dao.updateJournalEntry(entry)
+    }
+
+    suspend fun deleteVoucher(voucherId: Long) {
+        val entry = dao.getJournalEntryById(voucherId)
+        if (entry != null) {
+            dao.deleteJournalItemsByVoucher(voucherId)
+            dao.deleteJournalEntry(entry)
+        }
+    }
+
+    fun getJournalItemsByParty(partyId: Long): Flow<List<JournalItemEntity>> =
+        dao.getJournalItemsByParty(partyId)
 }

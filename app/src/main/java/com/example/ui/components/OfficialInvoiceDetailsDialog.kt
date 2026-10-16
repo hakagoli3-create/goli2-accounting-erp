@@ -246,6 +246,12 @@ fun OfficialInvoiceDetailsDialog(
                                 Text(NumberFormatUtils.formatPrice(inv.taxAmount), fontSize = 12.sp)
                             }
                         }
+                        if (inv.directExpenseAmount > 0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("هزینه مستقیم (${inv.directExpenseType}):", fontSize = 12.sp)
+                                Text(NumberFormatUtils.formatPrice(inv.directExpenseAmount), fontSize = 12.sp, color = PersianGold)
+                            }
+                        }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("مبلغ کل قابل پرداخت:", fontWeight = FontWeight.Bold, fontSize = 14.sp)

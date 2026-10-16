@@ -74,6 +74,21 @@ interface AccountingDao {
     @Query("SELECT * FROM journal_items ORDER BY id DESC")
     fun getAllJournalItems(): Flow<List<JournalItemEntity>>
 
+    @Query("SELECT * FROM journal_items WHERE partyId = :partyId ORDER BY id ASC")
+    fun getJournalItemsByParty(partyId: Long): Flow<List<JournalItemEntity>>
+
+    @androidx.room.Update
+    suspend fun updateJournalEntry(entry: JournalEntryEntity)
+
+    @androidx.room.Delete
+    suspend fun deleteJournalEntry(entry: JournalEntryEntity)
+
+    @Query("UPDATE journal_entries SET status = 'VOID' WHERE id = :voucherId")
+    suspend fun voidJournalEntry(voucherId: Long)
+
+    @Query("DELETE FROM journal_items WHERE voucherId = :voucherId")
+    suspend fun deleteJournalItemsByVoucher(voucherId: Long)
+
     @Transaction
     suspend fun createVoucherWithItems(
         entry: JournalEntryEntity,

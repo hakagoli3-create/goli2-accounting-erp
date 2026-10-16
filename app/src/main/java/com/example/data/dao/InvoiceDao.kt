@@ -42,6 +42,24 @@ interface InvoiceDao {
     @Query("SELECT COUNT(*) FROM invoices WHERE invoiceType IN ('SALE', 'POS_SALE') AND jalaliDate = :todayJalali")
     fun getTodayInvoiceCount(todayJalali: String): Flow<Int>
 
+    @Query("SELECT * FROM invoices WHERE id = :id LIMIT 1")
+    suspend fun getInvoiceById(id: Long): InvoiceEntity?
+
+    @Query("SELECT * FROM invoice_items WHERE invoiceId = :invoiceId")
+    suspend fun getItemsForInvoice(invoiceId: Long): List<InvoiceItemEntity>
+
+    @androidx.room.Update
+    suspend fun updateInvoice(invoice: InvoiceEntity)
+
+    @androidx.room.Delete
+    suspend fun deleteInvoice(invoice: InvoiceEntity)
+
+    @Query("DELETE FROM invoice_items WHERE invoiceId = :invoiceId")
+    suspend fun deleteInvoiceItemsForInvoice(invoiceId: Long)
+
+    @Query("UPDATE invoices SET status = :status WHERE id = :invoiceId")
+    suspend fun setInvoiceStatus(invoiceId: Long, status: String)
+
     @Transaction
     suspend fun createInvoiceWithItems(
         invoice: InvoiceEntity,

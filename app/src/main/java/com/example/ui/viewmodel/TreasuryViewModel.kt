@@ -53,6 +53,36 @@ class TreasuryViewModel(
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
+    data class ChequeRassResult(
+        val totalAmount: Long,
+        val chequeCount: Int,
+        val weightedDays: Int,
+        val rassDateJalali: String,
+        val averageAmount: Long
+    )
+
+    fun calculateChequeRass(cheques: List<ChequeEntity>): ChequeRassResult? {
+        if (cheques.isEmpty()) return null
+        val totalAmount = cheques.sumOf { it.amount }
+        if (totalAmount <= 0) return null
+
+        var weightedDaysSum = 0.0
+        cheques.forEach { ch ->
+            val days = ch.daysUntilDue().coerceAtLeast(0)
+            weightedDaysSum += (ch.amount.toDouble() * days.toDouble())
+        }
+        val avgDays = (weightedDaysSum / totalAmount.toDouble()).toInt()
+        val rassDate = JalaliDate.now().addDays(avgDays).toStandardString()
+
+        return ChequeRassResult(
+            totalAmount = totalAmount,
+            chequeCount = cheques.size,
+            weightedDays = avgDays,
+            rassDateJalali = rassDate,
+            averageAmount = totalAmount / cheques.size
+        )
+    }
+
     fun clearStatusMessage() {
         _statusMessage.value = null
     }

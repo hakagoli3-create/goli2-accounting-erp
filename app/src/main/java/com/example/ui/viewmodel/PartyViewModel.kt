@@ -104,4 +104,30 @@ class PartyViewModel(
             onSuccess()
         }
     }
+
+    fun updateParty(
+        party: PartyEntity,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            partyRepository.updateParty(party)
+            if (_selectedParty.value?.id == party.id) {
+                _selectedParty.value = party
+            }
+            onSuccess()
+        }
+    }
+
+    fun deleteParty(
+        party: PartyEntity,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            partyRepository.deleteParty(party)
+            if (_selectedParty.value?.id == party.id) {
+                _selectedParty.value = null
+            }
+            onSuccess()
+        }
+    }
 }

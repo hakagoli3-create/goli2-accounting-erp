@@ -449,6 +449,129 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // Database Backup & Restore Card (پشتیبان‌گیری و بازیابی پایگاه داده)
+            val restoreLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+            ) { uri ->
+                if (uri != null) {
+                    scope.launch {
+                        val result = com.example.util.DatabaseBackupHelper.restoreDatabaseFromFile(context, uri)
+                        if (result.isSuccess) {
+                            Toast.makeText(context, "بازیابی اطلاعات از فایل پشتیبان با موفقیت انجام شد. اطلاعات به‌روزرسانی شد.", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "خطا در بازیابی فایل: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = PersianGold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "پشتیبان‌گیری و بازیابی پایگاه داده (Backup & Restore)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "ایجاد فایل نسخه پشتیبان از کلیه حساب‌ها، فاکتورها، انبار و اسناد روی حافظه دستگاه یا اشتراک در پیام‌رسان‌ها.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val result = com.example.util.DatabaseBackupHelper.createDatabaseBackup(context)
+                                    if (result.isSuccess) {
+                                        val backupFile = result.getOrNull()!!
+                                        Toast.makeText(context, "فایل پشتیبان با موفقیت ساخته شد: ${backupFile.name}", Toast.LENGTH_SHORT).show()
+                                        com.example.util.DatabaseBackupHelper.shareBackupFile(context, backupFile)
+                                    } else {
+                                        Toast.makeText(context, "خطا در ایجاد پشتیبان: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f).testTag("create_backup_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("تهیه نسخه پشتیبان (Backup)")
+                        }
+
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = {
+                                restoreLauncher.launch("*/*")
+                            },
+                            modifier = Modifier.weight(1f).testTag("restore_backup_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("بازیابی اطلاعات (Restore)")
+                        }
+                    }
+                }
+            }
+
+            // Bluetooth Thermal Printers Settings
+            val pairedPrinters = remember { com.example.util.BluetoothThermalPrinter.getPairedPrinters(context) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.CloudDone, contentDescription = null, tint = AccountingDebitGreen)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "پرینترهای حرارتی بلوتوثی (ESC/POS)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "دستگاه‌های جفت‌شده با گوشی جهت چاپ سریع فاکتورهای ۵۸ و ۸۰ میلی‌متری:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    if (pairedPrinters.isEmpty()) {
+                        Text(
+                            text = "هیچ پرینتر بلوتوثی به دستگاه متصل نیست. می‌توانید پرینتر خود را از بخش تنظیمات بلوتوث اندروید Pair کنید.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    } else {
+                        pairedPrinters.forEach { p ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🖨 ${p.name}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text(p.address, fontSize = 11.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

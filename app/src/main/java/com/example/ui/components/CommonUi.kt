@@ -36,6 +36,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import com.example.util.PairedPrinter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -175,14 +182,19 @@ fun ReceiptPreviewDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pairedPrinters: List<PairedPrinter> = remember { com.example.util.BluetoothThermalPrinter.getPairedPrinters(context) }
+    var selectedPrinter by remember { mutableStateOf<PairedPrinter?>(pairedPrinters.firstOrNull()) }
+    var isPrinting by remember { mutableStateOf(false) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(vertical = 24.dp),
+                .fillMaxWidth(0.94f)
+                .padding(vertical = 20.dp),
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
@@ -197,22 +209,58 @@ fun ReceiptPreviewDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "پیش‌نمایش فاکتور حرارتی (ESC/POS)",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Print, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "پیش‌نمایش و چاپ فاکتور (ESC/POS)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                     IconButton(onClick = onDismiss) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "بستن")
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Bluetooth Printer Selection Banner
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = if (pairedPrinters.isNotEmpty())
+                                "پرینتر بلوتوثی انتخاب شده: ${selectedPrinter?.name ?: "انتخاب نشده"}"
+                            else
+                                "دستگاه پرینتر بلوتوثی جفت‌شده (Paired) یافت نشد.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            fontSize = 12.sp
+                        )
+                        if (pairedPrinters.size > 1) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                for (p in pairedPrinters) {
+                                    androidx.compose.material3.FilterChip(
+                                        selected = selectedPrinter?.address == p.address,
+                                        onClick = { selectedPrinter = p },
+                                        label = { Text(p.name, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false)
-                        .height(380.dp)
+                        .height(340.dp)
                         .background(Color(0xFFF7F7F7), RoundedCornerShape(12.dp))
                         .padding(12.dp)
                         .verticalScroll(rememberScrollState())
@@ -228,7 +276,7 @@ fun ReceiptPreviewDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -236,7 +284,7 @@ fun ReceiptPreviewDialog(
                 ) {
                     TextButton(
                         onClick = {
-                            val sendIntent: Intent = Intent().apply {
+                            val sendIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
                                 putExtra(Intent.EXTRA_TEXT, receiptText)
                                 type = "text/plain"
@@ -253,23 +301,39 @@ fun ReceiptPreviewDialog(
                         Text("اشتراک‌گذاری")
                     }
 
-                    TextButton(
+                    androidx.compose.material3.Button(
                         onClick = {
-                            // Thermal Bluetooth simulation feedback
-                            Toast.makeText(
-                                context,
-                                "دستورات ESC/POS به پرینتر حرارتی ارسال شد.",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            onDismiss()
+                            val printer = selectedPrinter
+                            if (printer != null) {
+                                isPrinting = true
+                                scope.launch {
+                                    val bytes = receiptText.toByteArray(Charsets.UTF_8)
+                                    val result = com.example.util.BluetoothThermalPrinter.printBytes(printer.device, bytes)
+                                    isPrinting = false
+                                    if (result.isSuccess) {
+                                        Toast.makeText(context, "فاکتور به پرینتر ${printer.name} ارسال و چاپ گردید.", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "خطا در اتصال یا چاپ پرینتر: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "دستور چاپ به شبیه‌ساز پرینتر حرارتی ارسال شد.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                onDismiss()
+                            }
                         },
+                        enabled = !isPrinting,
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1.2f)
                             .testTag("print_esc_pos_button")
                     ) {
                         Icon(imageVector = Icons.Default.Print, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("چاپ حرارتی")
+                        Text(if (isPrinting) "در حال چاپ..." else "چاپ حرارتی مستقیم")
                     }
                 }
             }

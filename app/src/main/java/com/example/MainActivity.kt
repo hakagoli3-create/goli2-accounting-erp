@@ -76,6 +76,7 @@ import com.example.ui.screens.CrmScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.InventoryScreen
 import com.example.ui.screens.InvoiceScreen
+import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.PosScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.TreasuryScreen
@@ -128,6 +129,16 @@ fun MainAppContent(
 ) {
     val context = LocalContext.current
     val factory = remember { AppViewModelFactory(context) }
+
+    val isLoggedIn by securityManager.isLoggedIn.collectAsStateWithLifecycle()
+
+    if (!isLoggedIn) {
+        LoginScreen(
+            securityManager = securityManager,
+            onLoginSuccess = {}
+        )
+        return
+    }
 
     val currentRole by securityManager.currentRole.collectAsStateWithLifecycle()
     val syncStatus by securityManager.syncStatus.collectAsStateWithLifecycle()
@@ -223,6 +234,21 @@ fun MainAppContent(
                             fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            securityManager.logout()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("خروج / تغییر کاربر (RBAC)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 

@@ -56,6 +56,12 @@ enum class CloudSyncStatus(val title: String) {
 class AppSecurityAndSettingsManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("goli_erp_settings", Context.MODE_PRIVATE)
 
+    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", true))
+    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+
+    private val _loggedInUsername = MutableStateFlow(prefs.getString("logged_in_username", "admin") ?: "admin")
+    val loggedInUsername: StateFlow<String> = _loggedInUsername.asStateFlow()
+
     private val _currentRole = MutableStateFlow(
         UserRole.valueOf(prefs.getString("user_role", UserRole.MANAGER.name) ?: UserRole.MANAGER.name)
     )
@@ -83,6 +89,37 @@ class AppSecurityAndSettingsManager(context: Context) {
 
     private val _lastSyncTime = MutableStateFlow(prefs.getString("last_sync_time", "هنوز همگام‌سازی نشده") ?: "هنوز همگام‌سازی نشده")
     val lastSyncTime: StateFlow<String> = _lastSyncTime.asStateFlow()
+
+    fun login(username: String, pass: String): Boolean {
+        val u = username.trim().lowercase()
+        val p = pass.trim()
+        val role = when {
+            u == "admin" && (p == "1234" || p == "admin") -> UserRole.MANAGER
+            u == "seller" && (p == "1234" || p == "seller") -> UserRole.SELLER
+            u == "visitor" && (p == "1234" || p == "visitor") -> UserRole.VISITOR
+            u == "manager" && p == "1234" -> UserRole.MANAGER
+            else -> null
+        }
+
+        return if (role != null) {
+            _isLoggedIn.value = true
+            _loggedInUsername.value = u
+            _currentRole.value = role
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("logged_in_username", u)
+                .putString("user_role", role.name)
+                .apply()
+            true
+        } else {
+            false
+        }
+    }
+
+    fun logout() {
+        _isLoggedIn.value = false
+        prefs.edit().putBoolean("is_logged_in", false).apply()
+    }
 
     fun switchRole(role: UserRole) {
         _currentRole.value = role

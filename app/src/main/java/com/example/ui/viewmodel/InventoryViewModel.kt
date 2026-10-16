@@ -143,4 +143,39 @@ class InventoryViewModel(
             onSuccess()
         }
     }
+
+    fun updateProduct(product: ProductEntity, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.updateProduct(product)
+            onSuccess()
+        }
+    }
+
+    fun deleteProduct(product: ProductEntity, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteProduct(product)
+            onSuccess()
+        }
+    }
+
+    /**
+     * ثبت انبارگردانی و اصلاح موجودی فیزیکی واقعی با ثبت مغایرت در کاردکس
+     */
+    fun performStockAdjustment(
+        productId: Long,
+        warehouseId: Long,
+        countedPhysicalStockSecondary: Double,
+        reason: String,
+        onSuccess: (Double) -> Unit
+    ) {
+        viewModelScope.launch {
+            val discrepancy = repository.performStockAdjustment(
+                productId = productId,
+                warehouseId = warehouseId,
+                countedPhysicalStockSecondary = countedPhysicalStockSecondary,
+                reason = reason
+            )
+            onSuccess(discrepancy)
+        }
+    }
 }

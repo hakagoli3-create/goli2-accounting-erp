@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import android.bluetooth.BluetoothDevice
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,7 @@ import com.example.data.repository.InventoryRepository
 import com.example.data.repository.InvoiceRepository
 import com.example.data.repository.PartyRepository
 import com.example.data.repository.TreasuryRepository
+import com.example.util.BluetoothThermalPrinter
 import com.example.util.EscPosPrinterHelper
 import com.example.util.ExportHelper
 import com.example.util.JalaliDate
@@ -82,6 +84,17 @@ class InvoiceViewModel(
 
     private val _selectedBankAccountId = MutableStateFlow(1L)
     val selectedBankAccountId: StateFlow<Long> = _selectedBankAccountId.asStateFlow()
+
+    // Direct Expense on invoice (هزینه مستقیم مانند حمل، بسته‌بندی و...)
+    private val _directExpenseAmount = MutableStateFlow(0L)
+    val directExpenseAmount: StateFlow<Long> = _directExpenseAmount.asStateFlow()
+
+    private val _directExpenseType = MutableStateFlow("کرایه حمل و باربری")
+    val directExpenseType: StateFlow<String> = _directExpenseType.asStateFlow()
+
+    // Issue as Proforma (پیش‌فاکتور)
+    private val _issueAsProforma = MutableStateFlow(false)
+    val issueAsProforma: StateFlow<Boolean> = _issueAsProforma.asStateFlow()
 
     // Printable Receipt State
     private val _previewReceiptText = MutableStateFlow<String?>(null)
@@ -173,10 +186,40 @@ class InvoiceViewModel(
         }
     }
 
+    fun setDirectExpense(amount: Long, type: String = "کرایه حمل و باربری") {
+        _directExpenseAmount.value = amount
+        _directExpenseType.value = type
+    }
+
+    fun setIssueAsProforma(isProforma: Boolean) {
+        _issueAsProforma.value = isProforma
+    }
+
+    /**
+     * تنظیم تعداد کارتن و تعداد تکی به طور همزمان برای هر قلم کالا
+     */
+    fun setCartItemQuantities(index: Int, cartons: Double, units: Double) {
+        val current = _cartItems.value.toMutableList()
+        if (index in current.indices) {
+            val item = current[index]
+            val conversion = if (item.product.conversionRate > 0) item.product.conversionRate else 1.0
+            val totalInSecondary = (cartons * conversion) + units
+            if (totalInSecondary <= 0) {
+                current.removeAt(index)
+            } else {
+                val qty = if (item.isPrimaryUnit) totalInSecondary / conversion else totalInSecondary
+                current[index] = item.copy(quantity = qty)
+            }
+            _cartItems.value = current
+        }
+    }
+
     fun clearCart() {
         _cartItems.value = emptyList()
         _discountAmount.value = 0L
         _applyTax.value = false
+        _directExpenseAmount.value = 0L
+        _issueAsProforma.value = false
         _selectedParty.value = null
     }
 
@@ -220,7 +263,105 @@ class InvoiceViewModel(
     }
 
     /**
-     * ثبت نهایی فاکتور همراه با تسویه پیشرفته (نقد، پوز، چک، نسیه یا ترکیبی)
+     * محاسبه سود ناخالص یک فاکتور بر اساس بهای تمام شده خرید (COGS)
+     */
+    fun calculateGrossProfit(inv: InvoiceWithItems): Long {
+        val totalRevenue = inv.invoice.subtotalAmount - inv.invoice.discountAmount
+        // بهای تمام شده بر اساس buyPrice اقلام کالا
+        val productMap = allProducts.value.associateBy { it.id }
+        val cogs = inv.items.sumOf { item ->
+            val p = productMap[item.productId]
+            val buyPrice = p?.buyPrice ?: (item.unitPrice * 0.75).toLong()
+            (item.quantityInSecondary * buyPrice).toLong()
+        }
+        return totalRevenue - cogs
+    }
+
+    /**
+     * تبدیل سریع پیش‌فاکتور به فاکتور فروش قطعی
+     */
+    fun convertProformaToFinal(invoiceWithItems: InvoiceWithItems, onCompleted: () -> Unit) {
+        viewModelScope.launch {
+            val success = invoiceRepo.convertProformaToFinal(invoiceWithItems.invoice.id)
+            if (success) {
+                _alertMessage.value = "پیش‌فاکتور شماره ${invoiceWithItems.invoice.invoiceNumber} به فاکتور قطعی تبدیل شد و موجودی انبار کسر گردید."
+                onCompleted()
+            } else {
+                _alertMessage.value = "خطا در تبدیل پیش‌فاکتور."
+            }
+        }
+    }
+
+    /**
+     * ابطال تمامی اسناد و فاکتور
+     */
+    fun voidInvoice(invoiceWithItems: InvoiceWithItems, onCompleted: () -> Unit) {
+        viewModelScope.launch {
+            val success = invoiceRepo.voidInvoice(invoiceWithItems.invoice.id)
+            if (success) {
+                _alertMessage.value = "فاکتور شماره ${invoiceWithItems.invoice.invoiceNumber} با موفقیت باطل شد و موجودی انبار به حالت قبل بازگشت."
+                onCompleted()
+            } else {
+                _alertMessage.value = "فاکتور قبلاً باطل شده است یا یافت نشد."
+            }
+        }
+    }
+
+    fun deleteInvoice(invoiceId: Long, onCompleted: () -> Unit) {
+        viewModelScope.launch {
+            val success = invoiceRepo.deleteInvoice(invoiceId)
+            if (success) {
+                _alertMessage.value = "فاکتور با موفقیت حذف گردید."
+                onCompleted()
+            }
+        }
+    }
+
+    /**
+     * ارسال مستقیم دستورات چاپ به پرینتر حرارتی بلوتوثی
+     */
+    fun printThermalReceiptBluetooth(
+        device: BluetoothDevice,
+        invoiceWithItems: InvoiceWithItems,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val inv = invoiceWithItems.invoice
+            val printable = EscPosPrinterHelper.PrintableInvoice(
+                invoiceNumber = inv.invoiceNumber,
+                invoiceDate = inv.jalaliDate,
+                customerName = inv.partyName,
+                customerPhone = inv.partyPhone,
+                warehouseName = inv.warehouseName,
+                items = invoiceWithItems.items.map {
+                    EscPosPrinterHelper.PrintableItem(
+                        name = it.productName,
+                        quantity = it.quantity,
+                        unit = it.unitName,
+                        unitPrice = it.unitPrice,
+                        totalPrice = it.totalPrice
+                    )
+                },
+                subtotalAmount = inv.subtotalAmount,
+                discountAmount = inv.discountAmount,
+                taxAmount = inv.taxAmount,
+                totalAmount = inv.totalAmount,
+                paymentMethod = inv.paymentType,
+                note = inv.notes
+            )
+            val bytes = EscPosPrinterHelper.buildEscPosBytes(printable)
+            val result = BluetoothThermalPrinter.printBytes(device, bytes)
+            if (result.isSuccess) {
+                onResult(true, "فاکتور با موفقیت به پرینتر حرارتی ارسال و چاپ شد.")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "خطای اتصال به پرینتر بلوتوثی"
+                onResult(false, "عدم موفقیت در چاپ بلوتوث: $err")
+            }
+        }
+    }
+
+    /**
+     * ثبت نهایی فاکتور همراه با تسویه پیشرفته (نقد، پوز، چک، نسیه یا ترکیبی) و هزینه‌های مستقیم
      */
     fun checkoutAdvanced(
         paymentType: String, // "CASH", "POS", "CREDIT", "CHEQUE", "MIXED"
@@ -248,7 +389,8 @@ class InvoiceViewModel(
             val discount = _discountAmount.value
             val taxable = if (subtotal > discount) subtotal - discount else 0L
             val tax = if (_applyTax.value) (taxable * 0.10).toLong() else 0L
-            val total = taxable + tax
+            val directExpense = _directExpenseAmount.value
+            val total = taxable + tax + directExpense
 
             val party = _selectedParty.value
 
@@ -259,7 +401,7 @@ class InvoiceViewModel(
             }
 
             // بررسی سقف اعتبار در صورت وجود بخش نسیه
-            if (effectiveCredit > 0) {
+            if (effectiveCredit > 0 && !_issueAsProforma.value) {
                 if (party == null) {
                     _alertMessage.value = "برای خرید نسیه، مشخص کردن طرف حساب (مشتری) الزامی است."
                     return@launch
@@ -315,7 +457,10 @@ class InvoiceViewModel(
                 cashDeskId = effectiveCashDesk,
                 bankAccountId = effectiveBank,
                 pricingMode = _pricingMode.value,
+                directExpenseAmount = directExpense,
+                directExpenseType = _directExpenseType.value,
                 isPaid = effectiveCredit == 0L,
+                status = if (_issueAsProforma.value) "PROFORMA" else "FINAL",
                 notes = notes
             )
 
@@ -337,8 +482,8 @@ class InvoiceViewModel(
 
             val invoiceId = invoiceRepo.createInvoice(invoice, invoiceItems)
 
-            // اگر چک صیادی ثبت شده بود، در سیستم خزانه‌داری نیز به صورت اتوماتیک اضافه می‌شود
-            if (effectiveCheque > 0 && chequeNumber.isNotBlank()) {
+            // اگر چک صیادی ثبت شده بود و پیش‌فاکتور نبود
+            if (!_issueAsProforma.value && effectiveCheque > 0 && chequeNumber.isNotBlank()) {
                 val dueEpoch = try {
                     JalaliDate.parse(chequeDueDate).toEpochMillis()
                 } catch (e: Exception) {
@@ -446,10 +591,11 @@ class InvoiceViewModel(
             sb.append("${i + 1}. ${itm.productName} | ${itm.quantity} ${itm.unitName} × ${itm.unitPrice} = ${itm.totalPrice} تومان\n")
         }
         sb.append("-----------------------------\n")
-        sb.append("جمع کل: ${inv.subtotalAmount} تومان\n")
+        sb.append("جمع اقلام: ${inv.subtotalAmount} تومان\n")
         if (inv.discountAmount > 0) sb.append("تخفیف: ${inv.discountAmount} تومان\n")
         if (inv.taxAmount > 0) sb.append("مالیات ارزش افزوده: ${inv.taxAmount} تومان\n")
-        sb.append("قابل پرداخت: ${inv.totalAmount} تومان\n")
+        if (inv.directExpenseAmount > 0) sb.append("هزینه مستقیم (${inv.directExpenseType}): ${inv.directExpenseAmount} تومان\n")
+        sb.append("مبلغ نهایی: ${inv.totalAmount} تومان\n")
         sb.append("نوع تسویه: ${inv.paymentType}\n")
         sb.append("شماره کارت جهت واریز: ${storeProfile.defaultBankCard}\n")
         sb.append("با تشکر از حسن انتخاب شما.")

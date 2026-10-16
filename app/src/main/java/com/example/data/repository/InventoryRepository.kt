@@ -45,4 +45,28 @@ class InventoryRepository(private val dao: InventoryDao) {
         dao.insertMovement(movement)
         dao.adjustStock(movement.productId, movement.quantitySecondary)
     }
+
+    suspend fun performStockAdjustment(
+        productId: Long,
+        warehouseId: Long,
+        countedPhysicalStockSecondary: Double,
+        reason: String = "انبارگردانی دوره‌ای"
+    ): Double {
+        val product = dao.getProductById(productId) ?: return 0.0
+        val discrepancy = countedPhysicalStockSecondary - product.currentStockInSecondary
+        if (discrepancy != 0.0) {
+            val movement = InventoryMovementEntity(
+                productId = productId,
+                warehouseId = warehouseId,
+                jalaliDate = com.example.util.JalaliDate.now().toStandardString(),
+                documentType = "ADJUSTMENT",
+                referenceNumber = "ADJ-${System.currentTimeMillis() % 10000}",
+                quantitySecondary = discrepancy,
+                unitPrice = product.buyPrice,
+                description = "$reason - مغایرت: $discrepancy ${product.secondaryUnit}"
+            )
+            recordMovement(movement)
+        }
+        return discrepancy
+    }
 }

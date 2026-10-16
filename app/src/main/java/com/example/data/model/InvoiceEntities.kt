@@ -37,8 +37,10 @@ data class InvoiceEntity(
     val cashDeskId: Long = 1L,
     val bankAccountId: Long = 1L,
     val pricingMode: String = "RETAIL", // "RETAIL" or "WHOLESALE"
+    val directExpenseAmount: Long = 0L, // هزینه مستقیم فاکتور (کرایه حمل، بسته‌بندی و...)
+    val directExpenseType: String = "", // شرح یا سرفصل هزینه مستقیم
     val isPaid: Boolean = true,
-    val status: String = "FINAL", // "FINAL" or "DRAFT"
+    val status: String = "FINAL", // "FINAL", "PROFORMA" (پیش فاکتور), or "VOID" (ابطال شده)
     val notes: String = ""
 )
 
@@ -83,4 +85,8 @@ data class InvoiceWithItems(
         entityColumn = "invoiceId"
     )
     val items: List<InvoiceItemEntity>
-)
+) {
+    val isProforma: Boolean get() = invoice.status == "PROFORMA"
+    val isVoid: Boolean get() = invoice.status == "VOID"
+    val isFinal: Boolean get() = invoice.status == "FINAL"
+}

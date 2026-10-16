@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -82,6 +84,14 @@ class AccountingViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProfitLossStatement(0, 0, 0, 0, 0))
 
+    // State for Party Subsidiary Ledger (دفتر معین اشخاص)
+    private val _selectedPartyIdForLedger = MutableStateFlow<Long?>(null)
+    val selectedPartyIdForLedger: StateFlow<Long?> = _selectedPartyIdForLedger.asStateFlow()
+
+    val partyLedgerEntries: StateFlow<List<JournalItemEntity>> = _selectedPartyIdForLedger.flatMapLatest { id ->
+        if (id != null) repository.getJournalItemsByParty(id) else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // State for creating a new Journal Voucher
     private val _draftVoucherDescription = MutableStateFlow("")
     val draftVoucherDescription: StateFlow<String> = _draftVoucherDescription.asStateFlow()
@@ -94,6 +104,34 @@ class AccountingViewModel(
 
     private val _operationMessage = MutableStateFlow<String?>(null)
     val operationMessage: StateFlow<String?> = _operationMessage.asStateFlow()
+
+    fun selectPartyForLedger(partyId: Long?) {
+        _selectedPartyIdForLedger.value = partyId
+    }
+
+    fun voidVoucher(voucher: JournalEntryEntity, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.voidVoucher(voucher.id)
+            _operationMessage.value = "سند شماره ${voucher.voucherNumber} با موفقیت باطل شد."
+            onSuccess()
+        }
+    }
+
+    fun updateVoucher(voucher: JournalEntryEntity, newDesc: String, newDate: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.updateVoucher(voucher.copy(description = newDesc, jalaliDate = newDate))
+            _operationMessage.value = "سند شماره ${voucher.voucherNumber} ویرایش شد."
+            onSuccess()
+        }
+    }
+
+    fun deleteVoucher(voucherId: Long, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteVoucher(voucherId)
+            _operationMessage.value = "سند مالی با موفقیت حذف گردید."
+            onSuccess()
+        }
+    }
 
     fun updateDraftDescription(desc: String) {
         _draftVoucherDescription.value = desc
