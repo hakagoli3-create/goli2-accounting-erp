@@ -63,8 +63,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.ui.components.BarcodeScannerDialog
-import com.example.ui.components.CartItemQuantityDialog
 import com.example.ui.components.ErpTopAppBar
 import com.example.ui.components.InvoiceSettlementDialog
 import com.example.ui.components.ReceiptPreviewDialog
@@ -96,31 +94,6 @@ fun PosScreen(
     var barcodeInput by remember { mutableStateOf("") }
     var customerMenuExpanded by remember { mutableStateOf(false) }
     var showSettlementDialog by remember { mutableStateOf(false) }
-    var showCameraScanner by remember { mutableStateOf(false) }
-    var editingCartIndex by remember { mutableStateOf<Int?>(null) }
-
-    if (showCameraScanner) {
-        BarcodeScannerDialog(
-            title = "اسکن بارکد در صندوق POS",
-            onDismiss = { showCameraScanner = false },
-            onBarcodeScanned = { barcode ->
-                viewModel.scanBarcode(barcode)
-                showCameraScanner = false
-            }
-        )
-    }
-
-    editingCartIndex?.let { idx ->
-        if (idx in cartItems.indices) {
-            CartItemQuantityDialog(
-                cartItem = cartItems[idx],
-                onDismiss = { editingCartIndex = null },
-                onConfirmQuantity = { cartons, units ->
-                    viewModel.setCartItemQuantities(idx, cartons, units)
-                }
-            )
-        }
-    }
 
     LaunchedEffect(alertMessage) {
         alertMessage?.let {
@@ -166,16 +139,11 @@ fun PosScreen(
                         onValueChange = { barcodeInput = it },
                         placeholder = { Text("بارکد کالا را وارد یا اسکن کنید...") },
                         leadingIcon = {
-                            IconButton(
-                                onClick = { showCameraScanner = true },
-                                modifier = Modifier.testTag("pos_open_camera_barcode")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.QrCodeScanner,
-                                    contentDescription = "اسکن بارکد با دوربین",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -183,7 +151,7 @@ fun PosScreen(
                             .weight(1f)
                             .testTag("pos_barcode_input")
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
                             if (barcodeInput.isNotBlank()) {
@@ -194,19 +162,6 @@ fun PosScreen(
                         modifier = Modifier.testTag("pos_scan_barcode_button")
                     ) {
                         Text("ثبت")
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    IconButton(
-                        onClick = { showCameraScanner = true },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "دوربین",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -405,11 +360,7 @@ fun PosScreen(
                                                 }
                                                 Text(
                                                     text = NumberFormatUtils.formatQuantity(item.quantity) + " " + item.unitName,
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                                    modifier = Modifier
-                                                        .clickable { editingCartIndex = index }
-                                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
                                                 )
                                                 IconButton(
                                                     onClick = { viewModel.updateCartItemQuantity(index, item.quantity + 1.0) },

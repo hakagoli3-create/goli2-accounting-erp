@@ -58,10 +58,7 @@ fun OfficialInvoiceDetailsDialog(
     onExportPdf: () -> Unit,
     onExportCsv: () -> Unit,
     onShareText: () -> Unit,
-    onPrintReceipt: () -> Unit,
-    onVoidInvoice: (() -> Unit)? = null,
-    onConvertProforma: (() -> Unit)? = null,
-    grossProfit: Long? = null
+    onPrintReceipt: () -> Unit
 ) {
     val inv = invoiceWithItems.invoice
     val items = invoiceWithItems.items
@@ -105,70 +102,7 @@ fun OfficialInvoiceDetailsDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Invoice Status Banner
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val statusText = when (inv.status) {
-                        "PROFORMA" -> "پیش‌فاکتور (غیرقطعی)"
-                        "VOID" -> "فاکتور ابطال شده"
-                        else -> "فاکتور قطعی و رسمی"
-                    }
-                    val statusColor = when (inv.status) {
-                        "PROFORMA" -> PersianGold
-                        "VOID" -> AccountingCreditRed
-                        else -> AccountingDebitGreen
-                    }
-                    Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.15f))
-                    ) {
-                        Text(
-                            text = statusText,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = statusColor,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    if (grossProfit != null) {
-                        Card(
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                        ) {
-                            Text(
-                                text = "سود ناخالص: ${NumberFormatUtils.formatPrice(grossProfit)}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    val commission3Pct = if (inv.subtotalAmount > inv.discountAmount) (((inv.subtotalAmount - inv.discountAmount) * 0.03).toLong()) else 0L
-                    if (commission3Pct > 0) {
-                        Card(
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(containerColor = PersianGold.copy(alpha = 0.15f))
-                        ) {
-                            Text(
-                                text = "پورسانت (۳٪): ${NumberFormatUtils.formatPrice(commission3Pct)}",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB78103),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Action Bar (Multi-format Export)
                 Row(
@@ -337,30 +271,6 @@ fun OfficialInvoiceDetailsDialog(
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                }
-
-                if (inv.status == "PROFORMA" && onConvertProforma != null) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = onConvertProforma,
-                        modifier = Modifier.fillMaxWidth().testTag("convert_proforma_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccountingDebitGreen),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("تبدیل به فاکتور فروش نهایی و کسر از انبار", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                if (inv.status != "VOID" && onVoidInvoice != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = onVoidInvoice,
-                        modifier = Modifier.fillMaxWidth().testTag("void_invoice_btn"),
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = AccountingCreditRed),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("ابطال رسمی این فاکتور (Void)", fontWeight = FontWeight.Bold)
                     }
                 }
             }

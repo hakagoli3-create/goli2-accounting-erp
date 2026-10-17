@@ -28,10 +28,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Inventory
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
-import com.example.ui.components.BarcodeScannerDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -83,18 +81,6 @@ fun InventoryScreen(
     val cardexMovements by viewModel.cardexMovements.collectAsStateWithLifecycle()
 
     var showAddProductDialog by remember { mutableStateOf(false) }
-    var showSearchScanner by remember { mutableStateOf(false) }
-
-    if (showSearchScanner) {
-        BarcodeScannerDialog(
-            title = "اسکن بارکد در انبارداری",
-            onDismiss = { showSearchScanner = false },
-            onBarcodeScanned = { code ->
-                viewModel.setSearchQuery(code)
-                showSearchScanner = false
-            }
-        )
-    }
 
     Scaffold(
         topBar = {
@@ -154,24 +140,12 @@ fun InventoryScreen(
                 }
             }
 
-            // Search Bar with Barcode Scanner
+            // Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
                 label = { Text("جستجوی کالا، کد یا بارکد...") },
                 leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(
-                        onClick = { showSearchScanner = true },
-                        modifier = Modifier.testTag("inventory_barcode_search_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "اسکن بارکد",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -398,19 +372,6 @@ fun AddProductDialog(
     var name by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var barcode by remember { mutableStateOf("") }
-    var showBarcodeScanner by remember { mutableStateOf(false) }
-
-    if (showBarcodeScanner) {
-        BarcodeScannerDialog(
-            title = "اسکن بارکد برای تعریف کالا",
-            onDismiss = { showBarcodeScanner = false },
-            onBarcodeScanned = { scanned ->
-                barcode = scanned
-                showBarcodeScanner = false
-            }
-        )
-    }
-
     var category by remember { mutableStateOf("") }
     var primaryUnit by remember { mutableStateOf("کارتن") }
     var secondaryUnit by remember { mutableStateOf("عدد") }
@@ -480,19 +441,7 @@ fun AddProductDialog(
                         value = barcode,
                         onValueChange = { barcode = it },
                         label = { Text("بارکد") },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = { showBarcodeScanner = true },
-                                modifier = Modifier.testTag("add_product_scan_barcode_btn")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.QrCodeScanner,
-                                    contentDescription = "اسکن دوربین",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1.2f)
+                        modifier = Modifier.weight(1f)
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))

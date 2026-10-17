@@ -8,8 +8,6 @@ class PartyRepository(private val dao: PartyDao) {
 
     val allParties: Flow<List<PartyEntity>> = dao.getAllParties()
     val allCustomers: Flow<List<PartyEntity>> = dao.getAllCustomers()
-    val wholesaleCustomers: Flow<List<PartyEntity>> = dao.getWholesaleCustomers()
-    val retailCustomers: Flow<List<PartyEntity>> = dao.getRetailCustomers()
     val allSuppliers: Flow<List<PartyEntity>> = dao.getAllSuppliers()
     val overCreditLimitCount: Flow<Int> = dao.getOverCreditLimitCount()
 
@@ -24,5 +22,8 @@ class PartyRepository(private val dao: PartyDao) {
     suspend fun deleteParty(party: PartyEntity) = dao.deleteParty(party)
 
     suspend fun adjustBalance(partyId: Long, delta: Long) =
+        dao.updatePartyBalance(partyId, delta)
+
+    suspend fun updatePartyBalance(partyId: Long, delta: Long) =
         dao.updatePartyBalance(partyId, delta)
 }

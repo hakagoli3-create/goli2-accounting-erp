@@ -94,8 +94,6 @@ object DatabaseSeeder {
                 retailPrice = 320000L,
                 wholesalePrice = 285000L,
                 partnerPrice = 275000L,
-                expiryDate = "1404/09/20",
-                batchNumber = "B-2024-OLV1",
                 description = "روغن زیتون طبیعی بکر با اسیدیته زیر ۰.۵ درصد"
             ),
             ProductEntity(
@@ -113,8 +111,6 @@ object DatabaseSeeder {
                 retailPrice = 150000L,
                 wholesalePrice = 135000L,
                 partnerPrice = 128000L,
-                expiryDate = "1405/01/15",
-                batchNumber = "B-2024-RC12",
                 description = "برنج اعلای گیلان سورت شده و الک شده"
             ),
             ProductEntity(
@@ -132,8 +128,6 @@ object DatabaseSeeder {
                 retailPrice = 225000L,
                 wholesalePrice = 198000L,
                 partnerPrice = 190000L,
-                expiryDate = "1405/06/30",
-                batchNumber = "B-2024-TEA3",
                 description = "چای شکسته خارجی با عطر برگاموت طبیعی"
             ),
             ProductEntity(
@@ -151,8 +145,6 @@ object DatabaseSeeder {
                 retailPrice = 85000L,
                 wholesalePrice = 73000L,
                 partnerPrice = 70000L,
-                expiryDate = "1404/11/10",
-                batchNumber = "B-2024-TOM4",
                 description = "رب گوجه بریکس ۲۷ درصد قوطی کلیددار"
             ),
             ProductEntity(
@@ -170,8 +162,6 @@ object DatabaseSeeder {
                 retailPrice = 49000L,
                 wholesalePrice = 43000L,
                 partnerPrice = 41500L,
-                expiryDate = "1405/04/20",
-                batchNumber = "B-2024-SUG5",
                 description = "شکر استاندارد بسته‌بندی نایلونی"
             ),
             ProductEntity(
@@ -189,14 +179,12 @@ object DatabaseSeeder {
                 retailPrice = 33000L,
                 wholesalePrice = 28000L,
                 partnerPrice = 26500L,
-                expiryDate = "1404/12/25",
-                batchNumber = "B-2024-MC6",
                 description = "ماکارونی رشته‌ای ضخامت ۱.۵ غنی شده"
             )
         )
         db.inventoryDao().insertProducts(products)
 
-        // 6. Parties (CRM مشتریان با سقف اعتبار ریالی و تفکیک عمده/تکی)
+        // 6. Parties (CRM مشتریان با سقف اعتبار ریالی)
         val parties = listOf(
             PartyEntity(
                 id = 1,
@@ -208,10 +196,9 @@ object DatabaseSeeder {
                 address = "میدان بهارستان، خیابان صفی علی شاه، پلاک ۴۴",
                 nationalCode = "10103456789",
                 partyType = "CUSTOMER",
-                customerCategory = "WHOLESALE", // مشتری عمده
                 creditLimit = 60000000L, // سقف اعتبار ۶۰ میلیون تومان
                 currentBalance = 14500000L, // بدهکار ۱۴.۵ میلیون تومان (در محدوده مجاز)
-                notes = "مشتری عمده‌فروشی خوش‌حساب و فعال منطقه ۱۲"
+                notes = "مشتری خوش‌حساب و فعال منطقه ۱۲"
             ),
             PartyEntity(
                 id = 2,
@@ -223,10 +210,9 @@ object DatabaseSeeder {
                 address = "ستارخان، بعد از پل یادگار، نرسیده به بازارچه سنتی",
                 nationalCode = "0078945612",
                 partyType = "CUSTOMER",
-                customerCategory = "RETAIL", // مشتری تکی / خرده‌فروشی
                 creditLimit = 20000000L, // سقف اعتبار ۲۰ میلیون تومان
                 currentBalance = 19200000L, // بدهکار ۱۹.۲ میلیون تومان (هشدار: نزدیک به سقف!)
-                notes = "مشتری خرده‌فروشی - نیاز به تسویه حساب قبل از سفارش‌های بعدی بیش از ۱ میلیون"
+                notes = "نیاز به تسویه حساب قبل از سفارش‌های بعدی بیش از ۱ میلیون"
             ),
             PartyEntity(
                 id = 3,
@@ -238,7 +224,6 @@ object DatabaseSeeder {
                 address = "اصفهان، میدان امام، سرای تحدید",
                 nationalCode = "1289945621",
                 partyType = "CUSTOMER",
-                customerCategory = "WHOLESALE", // مشتری عمده
                 creditLimit = 150000000L,
                 currentBalance = 0L,
                 notes = "خرید عمده کارتن و پرداخت با چک‌های معتبر صیادی"

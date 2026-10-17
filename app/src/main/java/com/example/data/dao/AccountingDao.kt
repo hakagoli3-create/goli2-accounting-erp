@@ -83,6 +83,18 @@ interface AccountingDao {
     @androidx.room.Delete
     suspend fun deleteJournalEntry(entry: JournalEntryEntity)
 
+    @androidx.room.Update
+    suspend fun updateJournalItem(item: JournalItemEntity)
+
+    @androidx.room.Delete
+    suspend fun deleteJournalItem(item: JournalItemEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertJournalItem(item: JournalItemEntity): Long
+
+    @Query("SELECT * FROM journal_items WHERE id = :id LIMIT 1")
+    suspend fun getJournalItemById(id: Long): JournalItemEntity?
+
     @Query("UPDATE journal_entries SET status = 'VOID' WHERE id = :voucherId")
     suspend fun voidJournalEntry(voucherId: Long)
 

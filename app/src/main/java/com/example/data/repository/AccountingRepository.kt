@@ -108,6 +108,65 @@ class AccountingRepository(private val dao: AccountingDao) {
         }
     }
 
+    suspend fun updateJournalItem(item: JournalItemEntity) {
+        dao.updateJournalItem(item)
+    }
+
+    suspend fun deleteJournalItem(itemId: Long) {
+        val item = dao.getJournalItemById(itemId)
+        if (item != null) {
+            dao.deleteJournalItem(item)
+        }
+    }
+
+    suspend fun addPartyTransaction(
+        partyId: Long,
+        description: String,
+        debit: Long,
+        credit: Long,
+        jalaliDate: String
+    ): Long {
+        val nextNumber = dao.getMaxVoucherNumber() + 1
+        val voucher = JournalEntryEntity(
+            voucherNumber = nextNumber,
+            jalaliDate = jalaliDate,
+            description = "سند معین طرف حساب: $description",
+            isBalanced = true,
+            status = "FINAL"
+        )
+        val voucherId = dao.insertJournalEntry(voucher)
+        val items = mutableListOf<JournalItemEntity>()
+
+        // ردیف معین شخص
+        items.add(
+            JournalItemEntity(
+                voucherId = voucherId,
+                generalCode = 102,
+                subsidiaryCode = 10201,
+                partyId = partyId,
+                description = description,
+                debit = debit,
+                credit = credit
+            )
+        )
+
+        // ردیف مقابل برای حفظ توازن دوبل (صندوق یا حساب جاری)
+        items.add(
+            JournalItemEntity(
+                voucherId = voucherId,
+                generalCode = 101,
+                subsidiaryCode = 10101,
+                partyId = null,
+                description = "طرف مقابل سند معین: $description",
+                debit = credit,
+                credit = debit
+            )
+        )
+
+        dao.insertJournalItems(items)
+        return voucherId
+    }
+
     fun getJournalItemsByParty(partyId: Long): Flow<List<JournalItemEntity>> =
         dao.getJournalItemsByParty(partyId)
 }

@@ -13,11 +13,15 @@ import com.example.data.repository.AccountingRepository
 import com.example.util.ExportHelper
 import com.example.util.JalaliDate
 import com.example.util.NumberFormatUtils
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.example.data.model.InvoiceWithItems
+import com.example.data.model.PartyEntity
+import com.example.data.repository.InvoiceRepository
+import com.example.data.repository.PartyRepository
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -42,7 +46,9 @@ data class ProfitLossStatement(
 )
 
 class AccountingViewModel(
-    private val repository: AccountingRepository
+    private val repository: AccountingRepository,
+    private val partyRepo: PartyRepository,
+    private val invoiceRepo: InvoiceRepository
 ) : ViewModel() {
 
     val allGroups: StateFlow<List<AccountGroupEntity>> = repository.allGroups
@@ -55,6 +61,12 @@ class AccountingViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allJournalEntries: StateFlow<List<JournalEntryEntity>> = repository.allJournalEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allParties: StateFlow<List<PartyEntity>> = partyRepo.allParties
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allInvoices: StateFlow<List<InvoiceWithItems>> = invoiceRepo.allInvoicesWithItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val trialBalance: StateFlow<List<TrialBalanceRow>> = repository.trialBalance
@@ -89,8 +101,13 @@ class AccountingViewModel(
     private val _selectedPartyIdForLedger = MutableStateFlow<Long?>(null)
     val selectedPartyIdForLedger: StateFlow<Long?> = _selectedPartyIdForLedger.asStateFlow()
 
+    val selectedPartyForLedger: StateFlow<PartyEntity?> = combine(allParties, _selectedPartyIdForLedger) { parties, id ->
+        if (id != null) parties.find { it.id == id } else parties.firstOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val partyLedgerEntries: StateFlow<List<JournalItemEntity>> = _selectedPartyIdForLedger.flatMapLatest { id ->
-        if (id != null) repository.getJournalItemsByParty(id) else flowOf(emptyList())
+        val effectiveId = id ?: allParties.value.firstOrNull()?.id
+        if (effectiveId != null) repository.getJournalItemsByParty(effectiveId) else flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // State for creating a new Journal Voucher
@@ -108,6 +125,114 @@ class AccountingViewModel(
 
     fun selectPartyForLedger(partyId: Long?) {
         _selectedPartyIdForLedger.value = partyId
+    }
+
+    fun addPartyTransaction(
+        partyId: Long,
+        description: String,
+        debit: Long,
+        credit: Long,
+        jalaliDate: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.addPartyTransaction(partyId, description, debit, credit, jalaliDate)
+            val netEffect = debit - credit
+            partyRepo.updatePartyBalance(partyId, netEffect)
+            _operationMessage.value = "گردش حساب با موفقیت در دفتر معین ثبت شد."
+            onSuccess()
+        }
+    }
+
+    fun updatePartyTransaction(
+        item: JournalItemEntity,
+        newDescription: String,
+        newDebit: Long,
+        newCredit: Long,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val oldNet = item.debit - item.credit
+            val newNet = newDebit - newCredit
+            val diff = newNet - oldNet
+            repository.updateJournalItem(item.copy(description = newDescription, debit = newDebit, credit = newCredit))
+            if (item.partyId != null && diff != 0L) {
+                partyRepo.updatePartyBalance(item.partyId, diff)
+            }
+            _operationMessage.value = "ردیف دفتر معین با موفقیت ویرایش گردید."
+            onSuccess()
+        }
+    }
+
+    fun deletePartyTransaction(
+        item: JournalItemEntity,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.deleteJournalItem(item.id)
+            if (item.partyId != null) {
+                val reverse = -(item.debit - item.credit)
+                partyRepo.updatePartyBalance(item.partyId, reverse)
+            }
+            _operationMessage.value = "ردیف دفتر معین حذف شد."
+            onSuccess()
+        }
+    }
+
+    fun voidInvoice(invoiceId: Long, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            val res = invoiceRepo.voidInvoice(invoiceId)
+            if (res) {
+                _operationMessage.value = "فاکتور با موفقیت باطل شد و اثرات آن معکوس گردید."
+                onSuccess()
+            }
+        }
+    }
+
+    fun deleteInvoice(invoiceId: Long, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            val res = invoiceRepo.deleteInvoice(invoiceId)
+            if (res) {
+                _operationMessage.value = "فاکتور با موفقیت حذف گردید."
+                onSuccess()
+            }
+        }
+    }
+
+    fun exportPartyLedgerPdf(context: Context, party: PartyEntity, items: List<JournalItemEntity>) {
+        val headers = listOf("ردیف", "شماره سند", "شرح گردش حساب", "بدهکار (تومان)", "بستانکار (تومان)", "مانده")
+        var running = 0L
+        val rows = items.mapIndexed { idx, itm ->
+            running += (itm.debit - itm.credit)
+            listOf(
+                (idx + 1).toString(),
+                "سند ${itm.voucherId}",
+                itm.description,
+                NumberFormatUtils.formatPrice(itm.debit),
+                NumberFormatUtils.formatPrice(itm.credit),
+                NumberFormatUtils.formatPrice(running)
+            )
+        }
+        val f = ExportHelper.exportReportPdf(context, "صورت‌حساب دفتر معین ${party.name}", headers, rows)
+        if (f != null) ExportHelper.shareFile(context, f, "application/pdf", "دفتر معین ${party.name} PDF")
+    }
+
+    fun exportPartyLedgerCsv(context: Context, party: PartyEntity, items: List<JournalItemEntity>) {
+        val headers = listOf("ردیف", "شماره سند", "شرح گردش", "بدهکار", "بستانکار", "مانده")
+        var running = 0L
+        val rows = items.mapIndexed { idx, itm ->
+            running += (itm.debit - itm.credit)
+            listOf(
+                (idx + 1).toString(),
+                itm.voucherId.toString(),
+                itm.description,
+                itm.debit.toString(),
+                itm.credit.toString(),
+                running.toString()
+            )
+        }
+        val f = ExportHelper.exportReportCsv(context, "معین_${party.name}", headers, rows)
+        if (f != null) ExportHelper.shareFile(context, f, "text/csv", "خروجی اکسل معین ${party.name}")
     }
 
     fun voidVoucher(voucher: JournalEntryEntity, onSuccess: () -> Unit) {
@@ -133,9 +258,6 @@ class AccountingViewModel(
             onSuccess()
         }
     }
-
-    fun getJournalItems(voucherId: Long): Flow<List<JournalItemEntity>> =
-        repository.getJournalItems(voucherId)
 
     fun updateDraftDescription(desc: String) {
         _draftVoucherDescription.value = desc

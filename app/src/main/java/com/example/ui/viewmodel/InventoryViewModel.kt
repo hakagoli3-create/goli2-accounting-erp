@@ -90,8 +90,6 @@ class InventoryViewModel(
         retailPrice: Long,
         wholesalePrice: Long,
         partnerPrice: Long,
-        expiryDate: String = "",
-        batchNumber: String = "",
         description: String,
         onSuccess: () -> Unit
     ) {
@@ -110,8 +108,6 @@ class InventoryViewModel(
                 retailPrice = retailPrice,
                 wholesalePrice = wholesalePrice,
                 partnerPrice = partnerPrice,
-                expiryDate = expiryDate,
-                batchNumber = batchNumber,
                 description = description
             )
             val productId = repository.insertProduct(product)
