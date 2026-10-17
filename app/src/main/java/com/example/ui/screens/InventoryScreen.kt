@@ -850,7 +850,7 @@ private fun CardexTabContent(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${prod?.name ?: "کالا ${mov.productId}"} - ${mov.documentType} (${mov.referenceNumber})",
+                                text = "${prod?.name ?: "کالا ${mov.productId}"} - ${formatDocumentTypePersian(mov.documentType)} (${mov.referenceNumber})",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
@@ -989,7 +989,7 @@ fun StockCardexDialog(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "${mov.documentType} - ${mov.referenceNumber}",
+                                            text = "${formatDocumentTypePersian(mov.documentType)} - ${mov.referenceNumber}",
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                                         )
                                         Text(
@@ -1012,5 +1012,29 @@ fun StockCardexDialog(
                 }
             }
         }
+    }
+}
+
+/**
+ * تبدیل کدهای سیستمی گردش کالا به عناوین رسمی حسابداری و انبارداری به زبان فارسی
+ */
+fun formatDocumentTypePersian(documentType: String): String {
+    return when (documentType) {
+        "PURCHASE" -> "فاکتور خرید"
+        "SALE" -> "فاکتور فروش"
+        "POS_SALE" -> "فروش صندوق"
+        "RETURN_SALE" -> "برگشت از فروش"
+        "RETURN_PURCHASE" -> "برگشت از خرید"
+        "ROLLBACK_SALE" -> "ابطال/برگشت فاکتور فروش"
+        "ROLLBACK_POS_SALE" -> "ابطال/برگشت فروش صندوق"
+        "ROLLBACK_PURCHASE" -> "ابطال/برگشت فاکتور خرید"
+        "ROLLBACK_RETURN_SALE" -> "ابطال برگشت از فروش"
+        "ROLLBACK_RETURN_PURCHASE" -> "ابطال برگشت از خرید"
+        "TRANSFER" -> "حواله انتقال"
+        "TRANSFER_IN" -> "ورود حواله انتقال"
+        "TRANSFER_OUT" -> "خروج حواله انتقال"
+        "ADJUSTMENT" -> "تعدیل انبارگردانی"
+        "INITIAL_BALANCE" -> "موجودی اول دوره"
+        else -> documentType.replace("ROLLBACK_", "ابطال ").replace("_", " ")
     }
 }
