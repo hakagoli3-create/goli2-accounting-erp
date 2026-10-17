@@ -18,32 +18,40 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Warehouse
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,49 +61,109 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.InventoryMovementEntity
 import com.example.data.model.ProductEntity
+import com.example.data.model.WarehouseEntity
 import com.example.ui.components.ErpTopAppBar
+import com.example.ui.components.ProductCardItem
+import com.example.ui.components.ProductFormBottomSheet
+import com.example.ui.components.StockTransferBottomSheet
+import com.example.ui.components.WarehouseCardItem
+import com.example.ui.components.WarehouseFormBottomSheet
 import com.example.ui.theme.AccountingCreditRed
 import com.example.ui.theme.AccountingDebitGreen
 import com.example.ui.theme.AlertWarningOrange
 import com.example.ui.viewmodel.InventoryViewModel
 import com.example.util.NumberFormatUtils
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryScreen(
     viewModel: InventoryViewModel
 ) {
     val context = LocalContext.current
     val warehouses by viewModel.allWarehouses.collectAsStateWithLifecycle()
-    val products by viewModel.filteredProducts.collectAsStateWithLifecycle()
+    val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
+    val filteredProducts by viewModel.filteredProducts.collectAsStateWithLifecycle()
     val categories by viewModel.allCategories.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val lowStockProducts by viewModel.lowStockProducts.collectAsStateWithLifecycle()
     val selectedCardexProduct by viewModel.selectedProductCardex.collectAsStateWithLifecycle()
     val cardexMovements by viewModel.cardexMovements.collectAsStateWithLifecycle()
+    val transferMovements by viewModel.transferMovements.collectAsStateWithLifecycle()
+    val recentMovements by viewModel.recentMovements.collectAsStateWithLifecycle()
 
-    var showAddProductDialog by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabTitles = listOf("کالاها و موجودی", "مدیریت انبارها", "حواله انتقال", "کاردکس و گردش")
+
+    // Modal BottomSheet States
+    val productSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showProductSheet by remember { mutableStateOf(false) }
+    var productToEdit by remember { mutableStateOf<ProductEntity?>(null) }
+
+    val warehouseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showWarehouseSheet by remember { mutableStateOf(false) }
+    var warehouseToEdit by remember { mutableStateOf<WarehouseEntity?>(null) }
+
+    val transferSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showTransferSheet by remember { mutableStateOf(false) }
+    var productForTransfer by remember { mutableStateOf<ProductEntity?>(null) }
+
+    // Dialog States for Deletion & Confirmation
+    var productToDelete by remember { mutableStateOf<ProductEntity?>(null) }
+    var warehouseToDelete by remember { mutableStateOf<WarehouseEntity?>(null) }
 
     Scaffold(
         topBar = {
             ErpTopAppBar(
                 title = "مدیریت انبارها و کالاها",
-                subtitle = "موجودی ترکیبی کارتن/عدد، قیمت‌گذاری چندسطحی و کاردکس"
+                subtitle = "موجودی ترکیبی کارتن/عدد، انتقال بین انبارها و قیمت‌گذاری چندسطحی"
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddProductDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.testTag("add_product_fab")
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "تعریف کالا", tint = Color.White)
+            when (selectedTab) {
+                0 -> {
+                    FloatingActionButton(
+                        onClick = {
+                            productToEdit = null
+                            showProductSheet = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("add_product_fab")
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "تعریف کالا", tint = Color.White)
+                    }
+                }
+                1 -> {
+                    FloatingActionButton(
+                        onClick = {
+                            warehouseToEdit = null
+                            showWarehouseSheet = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("add_warehouse_fab")
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "تعریف انبار", tint = Color.White)
+                    }
+                }
+                2 -> {
+                    FloatingActionButton(
+                        onClick = {
+                            productForTransfer = null
+                            showTransferSheet = true
+                        },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("add_transfer_fab")
+                    ) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.CompareArrows, contentDescription = "حواله جدید", tint = Color.White)
+                    }
+                }
             }
         }
     ) { innerPadding ->
@@ -104,73 +172,339 @@ fun InventoryScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Warehouses row
-            if (warehouses.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(warehouses) { wh ->
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            // Tab Row
+            PrimaryTabRow(selectedTabIndex = selectedTab) {
+                tabTitles.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                                )
                             )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Inventory,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "${wh.name} (${wh.code})",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
                         }
-                    }
+                    )
                 }
             }
 
-            // Search Bar
+            when (selectedTab) {
+                0 -> {
+                    // تب ۱: فهرست کالاها و موجودی
+                    ProductsTabContent(
+                        products = filteredProducts,
+                        allProductsCount = allProducts.size,
+                        lowStockCount = lowStockProducts.size,
+                        warehousesCount = warehouses.size,
+                        categories = categories,
+                        selectedCategory = selectedCategory,
+                        searchQuery = searchQuery,
+                        onSearchChange = { viewModel.setSearchQuery(it) },
+                        onSelectCategory = { viewModel.selectCategory(it) },
+                        onViewCardex = { viewModel.selectProductForCardex(it) },
+                        onEditProduct = {
+                            productToEdit = it
+                            showProductSheet = true
+                        },
+                        onTransferProduct = {
+                            productForTransfer = it
+                            showTransferSheet = true
+                        },
+                        onDeleteProduct = { productToDelete = it }
+                    )
+                }
+                1 -> {
+                    // تب ۲: مدیریت انبارها
+                    WarehousesTabContent(
+                        warehouses = warehouses,
+                        onAddNewWarehouse = {
+                            warehouseToEdit = null
+                            showWarehouseSheet = true
+                        },
+                        onEditWarehouse = {
+                            warehouseToEdit = it
+                            showWarehouseSheet = true
+                        },
+                        onDeleteWarehouse = { warehouseToDelete = it },
+                        onSetDefaultWarehouse = {
+                            viewModel.setWarehouseAsDefault(it.id) {
+                                Toast.makeText(context, "انبار «${it.name}» به عنوان انبار پیش‌فرض تنظیم شد.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+                2 -> {
+                    // تب ۳: حواله‌های انتقال بین انبارها
+                    TransfersTabContent(
+                        transfers = transferMovements,
+                        products = allProducts,
+                        warehouses = warehouses,
+                        onNewTransfer = {
+                            productForTransfer = null
+                            showTransferSheet = true
+                        }
+                    )
+                }
+                3 -> {
+                    // تب ۴: کاردکس و گردش کل انبار
+                    CardexTabContent(
+                        recentMovements = recentMovements,
+                        products = allProducts,
+                        selectedProduct = selectedCardexProduct,
+                        productMovements = cardexMovements,
+                        onSelectProduct = { viewModel.selectProductForCardex(it) }
+                    )
+                }
+            }
+        }
+    }
+
+    // ModalBottomSheet: افزودن / ویرایش کالا
+    if (showProductSheet) {
+        ProductFormBottomSheet(
+            sheetState = productSheetState,
+            productToEdit = productToEdit,
+            warehouses = warehouses,
+            onDismiss = { showProductSheet = false },
+            onSubmit = { code, barcode, name, cat, pUnit, sUnit, rate, stock, minStock, buy, retail, whole, partner, desc, targetWhId ->
+                if (productToEdit != null) {
+                    val updated = productToEdit!!.copy(
+                        code = code.ifBlank { productToEdit!!.code },
+                        barcode = barcode,
+                        name = name,
+                        category = cat.ifBlank { "عمومی" },
+                        primaryUnit = pUnit.ifBlank { "کارتن" },
+                        secondaryUnit = sUnit.ifBlank { "عدد" },
+                        conversionRate = if (rate <= 0) 1.0 else rate,
+                        currentStockInSecondary = stock,
+                        minStockThreshold = minStock,
+                        buyPrice = buy,
+                        retailPrice = retail,
+                        wholesalePrice = whole,
+                        partnerPrice = partner,
+                        description = desc
+                    )
+                    viewModel.updateProduct(updated) {
+                        Toast.makeText(context, "مشخصات کالای «$name» با موفقیت به‌روزرسانی شد.", Toast.LENGTH_SHORT).show()
+                        showProductSheet = false
+                    }
+                } else {
+                    viewModel.addProduct(
+                        code, barcode, name, cat, pUnit, sUnit, rate, stock, minStock, buy, retail, whole, partner, desc, targetWhId
+                    ) {
+                        Toast.makeText(context, "کالای «$name» با موفقیت در انبار ثبت گردید.", Toast.LENGTH_SHORT).show()
+                        showProductSheet = false
+                    }
+                }
+            }
+        )
+    }
+
+    // ModalBottomSheet: افزودن / ویرایش انبار
+    if (showWarehouseSheet) {
+        WarehouseFormBottomSheet(
+            sheetState = warehouseSheetState,
+            warehouseToEdit = warehouseToEdit,
+            onDismiss = { showWarehouseSheet = false },
+            onSubmit = { code, name, manager, phone, address, isDefault ->
+                if (warehouseToEdit != null) {
+                    val updated = warehouseToEdit!!.copy(
+                        code = code.ifBlank { warehouseToEdit!!.code },
+                        name = name,
+                        managerName = manager,
+                        phone = phone,
+                        address = address,
+                        isDefault = isDefault
+                    )
+                    viewModel.updateWarehouse(updated) {
+                        Toast.makeText(context, "مشخصات انبار «$name» با موفقیت ویرایش شد.", Toast.LENGTH_SHORT).show()
+                        showWarehouseSheet = false
+                    }
+                } else {
+                    viewModel.addWarehouse(code, name, manager, phone, address, isDefault) {
+                        Toast.makeText(context, "انبار «$name» با موفقیت تعریف شد.", Toast.LENGTH_SHORT).show()
+                        showWarehouseSheet = false
+                    }
+                }
+            }
+        )
+    }
+
+    // ModalBottomSheet: ثبت حواله انتقال
+    if (showTransferSheet) {
+        StockTransferBottomSheet(
+            sheetState = transferSheetState,
+            initialProduct = productForTransfer,
+            products = allProducts,
+            warehouses = warehouses,
+            onDismiss = { showTransferSheet = false },
+            onSubmit = { productId, srcWhId, dstWhId, qtySecondary, desc ->
+                viewModel.transferStock(productId, srcWhId, dstWhId, qtySecondary, desc) { success, message ->
+                    Toast.makeText(context, message, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                    if (success) {
+                        showTransferSheet = false
+                    }
+                }
+            }
+        )
+    }
+
+    // Stock Cardex Dialog (اگر محصولی در نمای دیالوگ اختصاصی انتخاب شد)
+    selectedCardexProduct?.let { product ->
+        StockCardexDialog(
+            product = product,
+            movements = cardexMovements,
+            onDismiss = { viewModel.selectProductForCardex(null) }
+        )
+    }
+
+    // دیالوگ تایید حذف کالا
+    productToDelete?.let { prod ->
+        AlertDialog(
+            onDismissRequest = { productToDelete = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("حذف کالا از انبار", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از حذف کالای «${prod.name}» (کد: ${prod.code}) اطمینان دارید؟ در صورت وجود گردش مالی یا فاکتور ثبت‌شده، حذف غیرمجاز خواهد بود.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteProduct(prod) { success, msg ->
+                            Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                            productToDelete = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)
+                ) {
+                    Text("حذف قطعی کالا")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { productToDelete = null }) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+    // دیالوگ تایید حذف انبار
+    warehouseToDelete?.let { wh ->
+        AlertDialog(
+            onDismissRequest = { warehouseToDelete = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("حذف انبار", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از حذف انبار «${wh.name}» (کد: ${wh.code}) اطمینان دارید؟ در صورت وجود موجودی کالا در این انبار، برای جلوگیری از مفقودی کالا، حذف غیرمجاز خواهد بود.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteWarehouse(wh) { success, msg ->
+                            Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                            warehouseToDelete = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)
+                ) {
+                    Text("حذف انبار")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { warehouseToDelete = null }) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * تب ۱: کالاها و موجودی
+ */
+@Composable
+private fun ProductsTabContent(
+    products: List<ProductEntity>,
+    allProductsCount: Int,
+    lowStockCount: Int,
+    warehousesCount: Int,
+    categories: List<String>,
+    selectedCategory: String?,
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onSelectCategory: (String?) -> Unit,
+    onViewCardex: (ProductEntity) -> Unit,
+    onEditProduct: (ProductEntity) -> Unit,
+    onTransferProduct: (ProductEntity) -> Unit,
+    onDeleteProduct: (ProductEntity) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp)
+    ) {
+        // ۱. کارت‌های آمار بالای صفحه
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatPillCard(
+                    title = "کل اقلام",
+                    value = allProductsCount.toString(),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                StatPillCard(
+                    title = "کسری موجودی",
+                    value = lowStockCount.toString(),
+                    color = if (lowStockCount > 0) AccountingCreditRed else Color.Gray,
+                    modifier = Modifier.weight(1f)
+                )
+                StatPillCard(
+                    title = "تعداد انبارها",
+                    value = warehousesCount.toString(),
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // ۲. فیلد جستجوی سریع
+        item {
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { viewModel.setSearchQuery(it) },
-                label = { Text("جستجوی کالا، کد یا بارکد...") },
-                leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                onValueChange = onSearchChange,
+                label = { Text("جستجوی نام کالا، کد، یا بارکد...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
                     .testTag("search_product_input")
             )
+        }
 
-            // Category filter chips
+        // ۳. فیلتر دسته‌بندی با چیپ‌ها
+        item {
             LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
                     val isSelected = selectedCategory == null
                     Card(
-                        modifier = Modifier.clickable { viewModel.selectCategory(null) },
+                        modifier = Modifier.clickable { onSelectCategory(null) },
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
                         Text(
-                            text = "همه گروه‌ها",
+                            text = "همه گروه‌ها ($allProductsCount)",
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium
@@ -180,7 +514,7 @@ fun InventoryScreen(
                 items(categories) { cat ->
                     val isSelected = selectedCategory == cat
                     Card(
-                        modifier = Modifier.clickable { viewModel.selectCategory(cat) },
+                        modifier = Modifier.clickable { onSelectCategory(cat) },
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
@@ -195,384 +529,344 @@ fun InventoryScreen(
                     }
                 }
             }
+        }
 
-            // Product List
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp)
+        // ۴. فهرست کالاها
+        if (products.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "کالایی با این مشخصات یافت نشد." else "هنوز کالایی ثبت نشده است. با دکمه + کالا اضافه کنید.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        } else {
+            items(products, key = { it.id }) { product ->
+                ProductCardItem(
+                    product = product,
+                    onViewCardex = { onViewCardex(product) },
+                    onEdit = { onEditProduct(product) },
+                    onTransfer = { onTransferProduct(product) },
+                    onDelete = { onDeleteProduct(product) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * تب ۲: مدیریت انبارها
+ */
+@Composable
+private fun WarehousesTabContent(
+    warehouses: List<WarehouseEntity>,
+    onAddNewWarehouse: () -> Unit,
+    onEditWarehouse: (WarehouseEntity) -> Unit,
+    onDeleteWarehouse: (WarehouseEntity) -> Unit,
+    onSetDefaultWarehouse: (WarehouseEntity) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp)
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
             ) {
-                items(products) { product ->
-                    val isLowStock = product.currentStockInSecondary <= product.minStockThreshold
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "تعریف و مدیریت انبارها",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "می‌توانید انبارهای مرکزی، فروشگاه، ضایعات و... را به تفکیک مدیریت کنید.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = onAddNewWarehouse,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("انبار جدید", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
 
-                    Card(
+        if (warehouses.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("هیچ انباری تعریف نشده است.")
+                }
+            }
+        } else {
+            items(warehouses, key = { it.id }) { wh ->
+                WarehouseCardItem(
+                    warehouse = wh,
+                    onEdit = { onEditWarehouse(wh) },
+                    onDelete = { onDeleteWarehouse(wh) },
+                    onSetDefault = { onSetDefaultWarehouse(wh) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * تب ۳: حواله‌های انتقال بین انبارها
+ */
+@Composable
+private fun TransfersTabContent(
+    transfers: List<InventoryMovementEntity>,
+    products: List<ProductEntity>,
+    warehouses: List<WarehouseEntity>,
+    onNewTransfer: () -> Unit
+) {
+    val productsMap = remember(products) { products.associateBy { it.id } }
+    val warehousesMap = remember(warehouses) { warehouses.associateBy { it.id } }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp)
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "حواله‌های جابجایی و انتقال کالا",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "جابجایی کالا بین شعب و انبارها با ثبت همزمان خروج و ورود",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = onNewTransfer,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.CompareArrows, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("حواله جدید", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        if (transfers.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("هنوز هیچ حواله انتقالی ثبت نشده است.")
+                }
+            }
+        } else {
+            items(transfers) { tr ->
+                val prod = productsMap[tr.productId]
+                val wh = warehousesMap[tr.warehouseId]
+                val isEntry = tr.quantitySecondary > 0
+
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isEntry) Color(0xFFF1F8E9) else Color(0xFFFFEBEE)
+                    )
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { viewModel.selectProductForCardex(product) }
-                            .testTag("product_item_${product.id}"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = product.name,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "کد: ${product.code} | بارکد: ${NumberFormatUtils.toPersianDigits(product.barcode)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                if (isLowStock) {
-                                    Box(
-                                        modifier = Modifier
-                                            .background(AccountingCreditRed.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.Warning,
-                                                contentDescription = null,
-                                                tint = AccountingCreditRed,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "کسری موجودی",
-                                                color = AccountingCreditRed,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // Dual unit stock display
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${prod?.name ?: "کد ${tr.productId}"} (${if (isEntry) "ورود به" else "خروج از"} ${wh?.name ?: "انبار"})",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "شماره حواله: ${tr.referenceNumber} | تاریخ: ${tr.jalaliDate}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (tr.description.isNotBlank()) {
                                 Text(
-                                    text = "موجودی انبار:",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
-                                )
-                                Text(
-                                    text = product.formatStockDisplay() + " (ضریب هر ${product.primaryUnit} = ${NumberFormatUtils.formatQuantity(product.conversionRate)} ${product.secondaryUnit})",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isLowStock) AccountingCreditRed else MaterialTheme.colorScheme.primary
-                                    )
+                                    text = tr.description,
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
                                 )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(tr.quantitySecondary) + " ${prod?.secondaryUnit ?: "عدد"}",
+                            fontWeight = FontWeight.Bold,
+                            color = if (isEntry) AccountingDebitGreen else AccountingCreditRed,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
-                            // Multi-tier prices
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "قیمت مصرف‌کننده (خرده):",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = NumberFormatUtils.formatPrice(product.retailPrice),
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(
-                                        text = "قیمت عمده‌فروشی:",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = NumberFormatUtils.formatPrice(product.wholesalePrice),
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                    )
-                                }
-                            }
+/**
+ * تب ۴: کاردکس و گردش کالا
+ */
+@Composable
+private fun CardexTabContent(
+    recentMovements: List<InventoryMovementEntity>,
+    products: List<ProductEntity>,
+    selectedProduct: ProductEntity?,
+    productMovements: List<InventoryMovementEntity>,
+    onSelectProduct: (ProductEntity?) -> Unit
+) {
+    val movementsToShow = if (selectedProduct != null) productMovements else recentMovements
+    val productsMap = remember(products) { products.associateBy { it.id } }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp)
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = if (selectedProduct != null) "کاردکس کالای: ${selectedProduct.name}" else "گردش‌های اخیر کل انبار (۱۰۰ تراکنش اخیر)",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (selectedProduct != null) {
+                            Text(
+                                text = "موجودی لحظه‌ای: ${selectedProduct.formatStockDisplay()}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    if (selectedProduct != null) {
+                        TextButton(onClick = { onSelectProduct(null) }) {
+                            Text("نمایش همه")
                         }
                     }
                 }
             }
         }
-    }
 
-    // Add Product Dialog
-    if (showAddProductDialog) {
-        AddProductDialog(
-            onDismiss = { showAddProductDialog = false },
-            onConfirm = { code, barcode, name, cat, pUnit, sUnit, rate, stock, minStock, buy, retail, whole, partner, desc ->
-                viewModel.addProduct(
-                    code, barcode, name, cat, pUnit, sUnit, rate, stock, minStock, buy, retail, whole, partner, desc
+        if (movementsToShow.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Toast.makeText(context, "کالای جدید با موفقیت ثبت شد", Toast.LENGTH_SHORT).show()
-                    showAddProductDialog = false
+                    Text("هیچ گردشی برای نمایش وجود ندارد.")
                 }
             }
-        )
-    }
+        } else {
+            items(movementsToShow) { mov ->
+                val prod = productsMap[mov.productId]
+                val isEntry = mov.quantitySecondary > 0
 
-    // Stock Cardex Dialog
-    selectedCardexProduct?.let { product ->
-        StockCardexDialog(
-            product = product,
-            movements = cardexMovements,
-            onDismiss = { viewModel.selectProductForCardex(null) }
-        )
-    }
-}
-
-@Composable
-fun AddProductDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (
-        code: String,
-        barcode: String,
-        name: String,
-        category: String,
-        primaryUnit: String,
-        secondaryUnit: String,
-        conversionRate: Double,
-        initialStockSecondary: Double,
-        minStock: Double,
-        buyPrice: Long,
-        retailPrice: Long,
-        wholesalePrice: Long,
-        partnerPrice: Long,
-        description: String
-    ) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var barcode by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
-    var primaryUnit by remember { mutableStateOf("کارتن") }
-    var secondaryUnit by remember { mutableStateOf("عدد") }
-    var conversionRateText by remember { mutableStateOf("12") }
-    var initialStockText by remember { mutableStateOf("24") }
-    var minStockText by remember { mutableStateOf("12") }
-    var buyPriceText by remember { mutableStateOf("100000") }
-    var retailPriceText by remember { mutableStateOf("140000") }
-    var wholesalePriceText by remember { mutableStateOf("125000") }
-    var partnerPriceText by remember { mutableStateOf("120000") }
-    var description by remember { mutableStateOf("") }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isEntry) Color(0xFFF1F8E9) else Color(0xFFFFEBEE)
+                    )
                 ) {
-                    Text(
-                        text = "تعریف کالا و قیمت‌گذاری چندسطحی",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "بستن")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("نام کالا") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("new_product_name_input")
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = code,
-                        onValueChange = { code = it },
-                        label = { Text("کد کالا") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = barcode,
-                        onValueChange = { barcode = it },
-                        label = { Text("بارکد") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    label = { Text("دسته‌بندی (مثال: لبنیات، غلات)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "واحدهای سنجش و ضریب تبدیل",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = primaryUnit,
-                        onValueChange = { primaryUnit = it },
-                        label = { Text("واحد اصلی (کارتن)") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = secondaryUnit,
-                        onValueChange = { secondaryUnit = it },
-                        label = { Text("واحد فرعی (عدد)") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = conversionRateText,
-                        onValueChange = { conversionRateText = it },
-                        label = { Text("ضریب تبدیل") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "قیمت‌گذاری چندسطحی (به تومان برای واحد فرعی)",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = buyPriceText,
-                        onValueChange = { buyPriceText = it },
-                        label = { Text("قیمت خرید") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = retailPriceText,
-                        onValueChange = { retailPriceText = it },
-                        label = { Text("قیمت خرده") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = wholesalePriceText,
-                        onValueChange = { wholesalePriceText = it },
-                        label = { Text("قیمت عمده") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = partnerPriceText,
-                        onValueChange = { partnerPriceText = it },
-                        label = { Text("قیمت همکار") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = initialStockText,
-                        onValueChange = { initialStockText = it },
-                        label = { Text("موجودی اولیه ($secondaryUnit)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = minStockText,
-                        onValueChange = { minStockText = it },
-                        label = { Text("نقطه سفارش ($secondaryUnit)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        if (name.isBlank()) return@Button
-                        val rate = conversionRateText.toDoubleOrNull() ?: 1.0
-                        val stock = initialStockText.toDoubleOrNull() ?: 0.0
-                        val minStock = minStockText.toDoubleOrNull() ?: 10.0
-                        val buy = buyPriceText.toLongOrNull() ?: 0L
-                        val retail = retailPriceText.toLongOrNull() ?: 0L
-                        val whole = wholesalePriceText.toLongOrNull() ?: 0L
-                        val partner = partnerPriceText.toLongOrNull() ?: 0L
-
-                        onConfirm(
-                            code, barcode, name, category, primaryUnit, secondaryUnit,
-                            rate, stock, minStock, buy, retail, whole, partner, description
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${prod?.name ?: "کالا ${mov.productId}"} - ${mov.documentType} (${mov.referenceNumber})",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "تاریخ: ${mov.jalaliDate} | ${mov.description}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(mov.quantitySecondary) + " ${prod?.secondaryUnit ?: "عدد"}",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (isEntry) AccountingDebitGreen else AccountingCreditRed
+                            )
                         )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("submit_product_button")
-                ) {
-                    Text("ثبت و ذخیره کالا در انبار", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -580,9 +874,45 @@ fun AddProductDialog(
 }
 
 @Composable
+private fun StatPillCard(
+    title: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * دیالوگ کاردکس کالا
+ */
+@Composable
 fun StockCardexDialog(
     product: ProductEntity,
-    movements: List<com.example.data.model.InventoryMovementEntity>,
+    movements: List<InventoryMovementEntity>,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -657,7 +987,7 @@ fun StockCardexDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "${mov.documentType} - ${mov.referenceNumber}",
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)

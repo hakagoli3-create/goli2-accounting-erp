@@ -71,9 +71,9 @@ object DatabaseSeeder {
 
         // 4. Warehouses (انبارها)
         val warehouses = listOf(
-            WarehouseEntity(1, "W101", "انبار مرکزی تهران", "مهندس محمدی", "خیابان آزادی، پلاک ۱۲", "021-66778899"),
-            WarehouseEntity(2, "W102", "انبار فروشگاه و دخل", "خانم اکبری", "بازار بزرگ، سرای امید", "021-55443322"),
-            WarehouseEntity(3, "W103", "انبار ضایعات و مرجوعی", "آقای حسینی", "خیابان فداییان اسلام", "021-33221100")
+            WarehouseEntity(1, "W101", "انبار مرکزی تهران", "مهندس محمدی", "خیابان آزادی، پلاک ۱۲", "021-66778899", isDefault = true),
+            WarehouseEntity(2, "W102", "انبار فروشگاه و دخل", "خانم اکبری", "بازار بزرگ، سرای امید", "021-55443322", isDefault = false),
+            WarehouseEntity(3, "W103", "انبار ضایعات و مرجوعی", "آقای حسینی", "خیابان فداییان اسلام", "021-33221100", isDefault = false)
         )
         db.inventoryDao().insertWarehouses(warehouses)
 

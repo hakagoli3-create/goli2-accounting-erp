@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class InventoryViewModel(
     private val repository: InventoryRepository
 ) : ViewModel() {
@@ -23,7 +24,16 @@ class InventoryViewModel(
     val allWarehouses: StateFlow<List<WarehouseEntity>> = repository.allWarehouses
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allProducts: StateFlow<List<ProductEntity>> = repository.allProducts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allCategories: StateFlow<List<String>> = repository.allCategories
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val transferMovements: StateFlow<List<InventoryMovementEntity>> = repository.transferMovements
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentMovements: StateFlow<List<InventoryMovementEntity>> = repository.recentMovements
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _searchQuery = MutableStateFlow("")
@@ -91,6 +101,7 @@ class InventoryViewModel(
         wholesalePrice: Long,
         partnerPrice: Long,
         description: String,
+        warehouseId: Long? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -112,10 +123,15 @@ class InventoryViewModel(
             )
             val productId = repository.insertProduct(product)
             if (initialStockSecondary > 0) {
+                val targetWhId = warehouseId
+                    ?: allWarehouses.value.firstOrNull { it.isDefault }?.id
+                    ?: allWarehouses.value.firstOrNull()?.id
+                    ?: 1L
+
                 repository.recordMovement(
                     InventoryMovementEntity(
                         productId = productId,
-                        warehouseId = 1,
+                        warehouseId = targetWhId,
                         jalaliDate = JalaliDate.now().toStandardString(),
                         documentType = "INITIAL_BALANCE",
                         referenceNumber = "INV-INIT",
@@ -129,21 +145,6 @@ class InventoryViewModel(
         }
     }
 
-    fun addWarehouse(name: String, code: String, manager: String, phone: String, address: String, onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            repository.insertWarehouse(
-                WarehouseEntity(
-                    code = code,
-                    name = name,
-                    managerName = manager,
-                    phone = phone,
-                    address = address
-                )
-            )
-            onSuccess()
-        }
-    }
-
     fun updateProduct(product: ProductEntity, onSuccess: () -> Unit) {
         viewModelScope.launch {
             repository.updateProduct(product)
@@ -151,10 +152,85 @@ class InventoryViewModel(
         }
     }
 
-    fun deleteProduct(product: ProductEntity, onSuccess: () -> Unit) {
+    fun deleteProduct(product: ProductEntity, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            repository.deleteProduct(product)
+            val res = repository.deleteProductSafely(product)
+            onResult(res.first, res.second)
+        }
+    }
+
+    fun addWarehouse(
+        code: String,
+        name: String,
+        manager: String,
+        phone: String,
+        address: String,
+        isDefault: Boolean = false,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val autoCode = code.ifBlank { "W${(allWarehouses.value.size + 101)}" }
+            val id = repository.insertWarehouse(
+                WarehouseEntity(
+                    code = autoCode,
+                    name = name,
+                    managerName = manager,
+                    phone = phone,
+                    address = address,
+                    isDefault = isDefault
+                )
+            )
+            if (isDefault) {
+                repository.setWarehouseAsDefault(id)
+            }
             onSuccess()
+        }
+    }
+
+    fun updateWarehouse(warehouse: WarehouseEntity, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.updateWarehouse(warehouse)
+            if (warehouse.isDefault) {
+                repository.setWarehouseAsDefault(warehouse.id)
+            }
+            onSuccess()
+        }
+    }
+
+    fun deleteWarehouse(warehouse: WarehouseEntity, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.deleteWarehouseSafely(warehouse)
+            onResult(res.first, res.second)
+        }
+    }
+
+    fun setWarehouseAsDefault(warehouseId: Long, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.setWarehouseAsDefault(warehouseId)
+            onSuccess()
+        }
+    }
+
+    fun transferStock(
+        productId: Long,
+        fromWarehouseId: Long,
+        toWarehouseId: Long,
+        quantitySecondary: Double,
+        description: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val refNo = "TRF-${System.currentTimeMillis() % 100000}"
+            val res = repository.transferStockBetweenWarehouses(
+                productId = productId,
+                fromWarehouseId = fromWarehouseId,
+                toWarehouseId = toWarehouseId,
+                quantitySecondary = quantitySecondary,
+                jalaliDate = JalaliDate.now().toStandardString(),
+                referenceNumber = refNo,
+                description = description
+            )
+            onResult(res.first, res.second)
         }
     }
 

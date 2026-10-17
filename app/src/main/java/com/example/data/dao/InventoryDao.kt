@@ -15,14 +15,41 @@ import kotlinx.coroutines.flow.Flow
 interface InventoryDao {
 
     // Warehouses
-    @Query("SELECT * FROM warehouses ORDER BY id ASC")
+    @Query("SELECT * FROM warehouses ORDER BY isDefault DESC, id ASC")
     fun getAllWarehouses(): Flow<List<WarehouseEntity>>
+
+    @Query("SELECT * FROM warehouses WHERE id = :id LIMIT 1")
+    suspend fun getWarehouseById(id: Long): WarehouseEntity?
+
+    @Query("SELECT * FROM warehouses WHERE isDefault = 1 LIMIT 1")
+    suspend fun getDefaultWarehouse(): WarehouseEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWarehouse(warehouse: WarehouseEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWarehouses(warehouses: List<WarehouseEntity>)
+
+    @Update
+    suspend fun updateWarehouse(warehouse: WarehouseEntity)
+
+    @Delete
+    suspend fun deleteWarehouse(warehouse: WarehouseEntity)
+
+    @Query("UPDATE warehouses SET isDefault = 0")
+    suspend fun clearDefaultWarehouses()
+
+    @Query("UPDATE warehouses SET isDefault = 1 WHERE id = :warehouseId")
+    suspend fun setWarehouseAsDefault(warehouseId: Long)
+
+    @Query("SELECT COUNT(*) FROM inventory_movements WHERE warehouseId = :warehouseId")
+    suspend fun countMovementsForWarehouse(warehouseId: Long): Int
+
+    @Query("SELECT COALESCE(SUM(quantitySecondary), 0.0) FROM inventory_movements WHERE warehouseId = :warehouseId")
+    suspend fun getTotalStockInWarehouse(warehouseId: Long): Double
+
+    @Query("SELECT COALESCE(SUM(quantitySecondary), 0.0) FROM inventory_movements WHERE productId = :productId AND warehouseId = :warehouseId")
+    suspend fun getProductStockInWarehouse(productId: Long, warehouseId: Long): Double
 
     // Products
     @Query("SELECT * FROM products ORDER BY id DESC")
@@ -73,4 +100,16 @@ interface InventoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovement(movement: InventoryMovementEntity): Long
+
+    @Query("SELECT COUNT(*) FROM invoice_items WHERE productId = :productId")
+    suspend fun countInvoiceItemsForProduct(productId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM inventory_movements WHERE productId = :productId AND documentType != 'INITIAL_BALANCE'")
+    suspend fun countActiveMovementsForProduct(productId: Long): Int
+
+    @Query("SELECT * FROM inventory_movements WHERE documentType IN ('TRANSFER', 'TRANSFER_IN', 'TRANSFER_OUT') ORDER BY timestamp DESC")
+    fun getTransferMovements(): Flow<List<InventoryMovementEntity>>
+
+    @Query("DELETE FROM inventory_movements WHERE productId = :productId")
+    suspend fun deleteMovementsForProduct(productId: Long)
 }

@@ -15,7 +15,8 @@ data class WarehouseEntity(
     val name: String,
     val managerName: String = "",
     val address: String = "",
-    val phone: String = ""
+    val phone: String = "",
+    val isDefault: Boolean = false
 )
 
 /**
