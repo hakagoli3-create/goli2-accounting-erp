@@ -77,6 +77,7 @@ import com.example.data.model.StoreProfile
 import com.example.ui.components.ErpTopAppBar
 import com.example.ui.components.InvoiceSettlementDialog
 import com.example.ui.components.OfficialInvoiceDetailsDialog
+import com.example.ui.components.OfficialInvoicePrintPreviewDialog
 import com.example.ui.components.ReceiptPreviewDialog
 import com.example.ui.theme.AccountingCreditRed
 import com.example.ui.theme.AccountingDebitGreen
@@ -125,6 +126,8 @@ fun InvoiceScreen(
     )
 
     var showSettlementDialog by remember { mutableStateOf(false) }
+    var showOfficialPrintPreview by remember { mutableStateOf<InvoiceWithItems?>(null) }
+    var showPrintChoiceInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
 
     LaunchedEffect(alertMessage) {
         alertMessage?.let {
@@ -166,8 +169,8 @@ fun InvoiceScreen(
             when (selectedTab) {
                 0 -> InvoiceListContent(
                     invoices = invoices,
-                    onOpenDetails = { viewModel.openInvoiceDetails(it) },
-                    onPrintInvoice = { viewModel.showReceiptForInvoice(it) },
+                    onOpenDetails = { showOfficialPrintPreview = it },
+                    onPrintInvoice = { showPrintChoiceInvoice = it },
                     onEditInvoice = { inv ->
                         viewModel.loadInvoiceForEditing(inv)
                         selectedTab = 1
@@ -275,7 +278,79 @@ fun InvoiceScreen(
             onExportPdf = { viewModel.exportPdf(context, invoiceWithItems, storeProfile) },
             onExportCsv = { viewModel.exportCsv(context, invoiceWithItems, storeProfile) },
             onShareText = { viewModel.shareText(context, invoiceWithItems, storeProfile) },
-            onPrintReceipt = { viewModel.showReceiptForInvoice(invoiceWithItems) }
+            onPrintReceipt = { viewModel.showReceiptForInvoice(invoiceWithItems) },
+            onOpenOfficialPrintPreview = { showOfficialPrintPreview = invoiceWithItems }
+        )
+    }
+
+    // Modal: پیش‌نمایش و چاپ فاکتور رسمی A4 / A5
+    showOfficialPrintPreview?.let { invWithItems ->
+        OfficialInvoicePrintPreviewDialog(
+            invoiceWithItems = invWithItems,
+            storeProfile = storeProfile,
+            onDismiss = { showOfficialPrintPreview = null },
+            onSwitchToThermalReceipt = {
+                showOfficialPrintPreview = null
+                viewModel.showReceiptForInvoice(invWithItems)
+            }
+        )
+    }
+
+    // Modal: انتخاب قالب چاپ بین رسمی (A4/A5) و حرارتی (ESC/POS)
+    showPrintChoiceInvoice?.let { invWithItems ->
+        AlertDialog(
+            onDismissRequest = { showPrintChoiceInvoice = null },
+            title = {
+                Text(
+                    text = "انتخاب قالب چاپ فاکتور شماره ${invWithItems.invoice.invoiceNumber}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "مایل به چاپ یا پیش‌نمایش فاکتور در کدام قالب هستید؟",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val inv = invWithItems
+                            showPrintChoiceInvoice = null
+                            showOfficialPrintPreview = inv
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("قالب رسمی A4 / A5 (سربرگ، جدول، به حروف و امضا)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val inv = invWithItems
+                            showPrintChoiceInvoice = null
+                            viewModel.showReceiptForInvoice(inv)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("قالب فیش حرارتی (فیش‌پرینتر POS)", fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showPrintChoiceInvoice = null }) {
+                    Text("انصراف")
+                }
+            }
         )
     }
 
@@ -793,12 +868,24 @@ private fun InvoiceEditorContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    val availableParties = remember(partyList, selectedParty) {
+                        if (selectedParty != null && partyList.none { it.id == selectedParty.id }) {
+                            listOf(selectedParty) + partyList
+                        } else {
+                            partyList
+                        }
+                    }
+
+                    val partyDisplayText = selectedParty?.let {
+                        if (it.code.isNotBlank()) "${it.name} (${it.code})" else it.name
+                    } ?: "انتخاب $partyLabel..."
+
                     ExposedDropdownMenuBox(
                         expanded = partyMenuExpanded,
                         onExpandedChange = { partyMenuExpanded = !partyMenuExpanded }
                     ) {
                         OutlinedTextField(
-                            value = selectedParty?.let { "${it.name} (${it.code})" } ?: "انتخاب $partyLabel...",
+                            value = partyDisplayText,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text(partyLabel) },
@@ -812,7 +899,7 @@ private fun InvoiceEditorContent(
                             expanded = partyMenuExpanded,
                             onDismissRequest = { partyMenuExpanded = false }
                         ) {
-                            partyList.forEach { party ->
+                            availableParties.forEach { party ->
                                 DropdownMenuItem(
                                     text = { Text("${party.name} - اعتبار: ${NumberFormatUtils.formatPrice(party.creditLimit)} (مانده: ${NumberFormatUtils.formatPrice(party.currentBalance)})") },
                                     onClick = {

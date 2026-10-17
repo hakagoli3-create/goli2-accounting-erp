@@ -34,6 +34,14 @@ class AppViewModelFactory(
         TreasuryRepository(database.treasuryDao())
     }
 
+    val expenseAndIncomeRepository: com.example.data.repository.ExpenseAndIncomeRepository by lazy {
+        com.example.data.repository.ExpenseAndIncomeRepository(
+            expenseAndIncomeDao = database.expenseAndIncomeDao(),
+            treasuryDao = database.treasuryDao(),
+            accountingDao = database.accountingDao()
+        )
+    }
+
     val invoiceRepository: InvoiceRepository by lazy {
         InvoiceRepository(
             invoiceDao = database.invoiceDao(),
@@ -79,6 +87,12 @@ class AppViewModelFactory(
             }
             modelClass.isAssignableFrom(PartyViewModel::class.java) -> {
                 PartyViewModel(partyRepository, invoiceRepository) as T
+            }
+            modelClass.isAssignableFrom(ExpenseAndIncomeViewModel::class.java) -> {
+                ExpenseAndIncomeViewModel(
+                    repository = expenseAndIncomeRepository,
+                    treasuryRepo = treasuryRepository
+                ) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

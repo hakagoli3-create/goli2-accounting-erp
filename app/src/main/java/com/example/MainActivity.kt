@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
@@ -74,6 +76,8 @@ import com.example.data.model.CloudSyncStatus
 import com.example.ui.screens.AccountingScreen
 import com.example.ui.screens.CrmScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.ExpenseScreen
+import com.example.ui.screens.IncomeScreen
 import com.example.ui.screens.InventoryScreen
 import com.example.ui.screens.InvoiceScreen
 import com.example.ui.screens.LoginScreen
@@ -96,6 +100,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     data object Dashboard : Screen("dashboard", "داشبورد", Icons.Default.Dashboard)
     data object Pos : Screen("pos", "صندوق POS", Icons.Default.PointOfSale)
     data object Invoices : Screen("invoices", "فاکتورها", Icons.AutoMirrored.Filled.ReceiptLong)
+    data object Expenses : Screen("expenses", "هزینه‌ها", Icons.Default.TrendingDown)
+    data object Incomes : Screen("incomes", "درآمدها", Icons.Default.TrendingUp)
     data object Accounting : Screen("accounting", "حسابداری", Icons.AutoMirrored.Filled.Assignment)
     data object Treasury : Screen("treasury", "خزانه‌داری", Icons.Default.AccountBalance)
     data object Inventory : Screen("inventory", "انبار و کالا", Icons.Default.Inventory2)
@@ -150,6 +156,7 @@ fun MainAppContent(
     val invoiceViewModel: InvoiceViewModel = viewModel(factory = factory)
     val treasuryViewModel: TreasuryViewModel = viewModel(factory = factory)
     val partyViewModel: PartyViewModel = viewModel(factory = factory)
+    val expenseAndIncomeViewModel: com.example.ui.viewmodel.ExpenseAndIncomeViewModel = viewModel(factory = factory)
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -159,7 +166,7 @@ fun MainAppContent(
         Screen.Dashboard,
         Screen.Pos,
         Screen.Invoices,
-        Screen.Accounting,
+        Screen.Expenses,
         Screen.Treasury
     )
 
@@ -167,6 +174,8 @@ fun MainAppContent(
         Screen.Dashboard,
         Screen.Pos,
         Screen.Invoices,
+        Screen.Expenses,
+        Screen.Incomes,
         Screen.Accounting,
         Screen.Inventory,
         Screen.Treasury,
@@ -329,6 +338,12 @@ fun MainAppContent(
                     }
                     composable(Screen.Invoices.route) {
                         InvoiceScreen(viewModel = invoiceViewModel)
+                    }
+                    composable(Screen.Expenses.route) {
+                        ExpenseScreen(viewModel = expenseAndIncomeViewModel)
+                    }
+                    composable(Screen.Incomes.route) {
+                        IncomeScreen(viewModel = expenseAndIncomeViewModel)
                     }
                     composable(Screen.Accounting.route) {
                         AccountingScreen(viewModel = accountingViewModel)

@@ -58,7 +58,8 @@ fun OfficialInvoiceDetailsDialog(
     onExportPdf: () -> Unit,
     onExportCsv: () -> Unit,
     onShareText: () -> Unit,
-    onPrintReceipt: () -> Unit
+    onPrintReceipt: () -> Unit,
+    onOpenOfficialPrintPreview: (() -> Unit)? = null
 ) {
     val inv = invoiceWithItems.invoice
     val items = invoiceWithItems.items
@@ -103,6 +104,20 @@ fun OfficialInvoiceDetailsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                if (onOpenOfficialPrintPreview != null) {
+                    Button(
+                        onClick = onOpenOfficialPrintPreview,
+                        modifier = Modifier.fillMaxWidth().testTag("open_a4_a5_preview_btn"),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("قالب رسمی و اداری فاکتور (A4 / A5)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
                 // Action Bar (Multi-format Export)
                 Row(
@@ -256,6 +271,21 @@ fun OfficialInvoiceDetailsDialog(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("مبلغ کل قابل پرداخت:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text(NumberFormatUtils.formatPrice(inv.totalAmount), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(inv.totalAmount)} تومان",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

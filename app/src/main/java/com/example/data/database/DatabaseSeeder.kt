@@ -462,5 +462,59 @@ object DatabaseSeeder {
             )
         )
         db.invoiceDao().insertInvoiceItems(invoiceItems)
+
+        // 11. Expense Categories (سرفصل‌های پیش‌فرض هزینه)
+        val defaultExpenseCategories = listOf(
+            com.example.data.model.ExpenseCategoryEntity(1, "EXP-01", "اجاره محل و انبار", "اجاره ماهانه دفتر مرکزی، مغازه و انبارهای نگهداری کالا", "Store"),
+            com.example.data.model.ExpenseCategoryEntity(2, "EXP-02", "حقوق و دستمزد پرسنل", "حقوق پایه، پاداش، پورسانت فروش و بیمه کارکنان", "People"),
+            com.example.data.model.ExpenseCategoryEntity(3, "EXP-03", "کرایه حمل و باربری", "هزینه پیک موتوری، وانت‌بار، باربری بین شهری و انبارداری", "LocalShipping"),
+            com.example.data.model.ExpenseCategoryEntity(4, "EXP-04", "ملزومات و بسته‌بندی", "خرید کارتن، چسب، نایلون، کاغذ چاپگر حرارتی و اداری", "Inventory2"),
+            com.example.data.model.ExpenseCategoryEntity(5, "EXP-05", "تبلیغات و بازاریابی", "هزینه تبلیغات پیامکی، بنر، اینستاگرام و کاتالوگ", "Campaign"),
+            com.example.data.model.ExpenseCategoryEntity(6, "EXP-06", "قبوض و انشعابات", "قبوض برق، گاز، آب، تلفن ثابت و اینترنت پرسرعت", "Receipt"),
+            com.example.data.model.ExpenseCategoryEntity(7, "EXP-07", "پذیرایی و تشریفات", "خرید چای، قند، قهوه و پذیرایی از مشتریان و پرسنل", "Coffee"),
+            com.example.data.model.ExpenseCategoryEntity(8, "EXP-08", "تعمیرات و نگهداری", "سرویس کولر، تعمیر کامپیوترها، ترازو و خودرو باربری", "Build"),
+            com.example.data.model.ExpenseCategoryEntity(9, "EXP-09", "هزینه‌های متفرقه اداری", "سایر هزینه‌های پیش‌بینی‌نشده جاری شرکت", "MoreHoriz")
+        )
+        db.expenseAndIncomeDao().insertExpenseCategories(defaultExpenseCategories)
+
+        // Initial sample expense
+        val sampleExpense = com.example.data.model.ExpenseEntity(
+            id = 1,
+            categoryId = 3,
+            categoryTitle = "کرایه حمل و باربری",
+            amount = 350000L,
+            jalaliDate = todayStr,
+            paymentMethod = "CASH",
+            cashDeskId = 1,
+            accountName = "صندوق مرکزی فروشگاه",
+            title = "کرایه حمل بار از انبار به هایپرمارکت بهارستان",
+            notes = "وانت بار بازار - فاکتور شماره ۱۰۰۱"
+        )
+        db.expenseAndIncomeDao().insertExpense(sampleExpense)
+
+        // 12. Income Categories (سرفصل‌های درآمدهای متفرقه)
+        val defaultIncomeCategories = listOf(
+            com.example.data.model.IncomeCategoryEntity(1, "INC-01", "درآمدهای متفرقه و غیرعملیاتی", "کلیه درآمدهای خارج از چرخه اصلی فروش کالا", "TrendingUp"),
+            com.example.data.model.IncomeCategoryEntity(2, "INC-02", "سود سپرده بانکی", "سود واریزی ماهانه حساب‌های سرمایه‌گذاری", "AccountBalance"),
+            com.example.data.model.IncomeCategoryEntity(3, "INC-03", "خدمات و مشاورات بازرگانی", "کارمزد ارائه خدمات، مشاوره‌های توزیع و حق‌العمل‌کاری", "Handshake"),
+            com.example.data.model.IncomeCategoryEntity(4, "INC-04", "فروش ضایعات و کارتن", "درآمد ناشی از فروش جعبه‌های خالی، پالت و ضایعات انبار", "Recycling"),
+            com.example.data.model.IncomeCategoryEntity(5, "INC-05", "اجاره دریافتی انبار/ملک", "اجاره بخشی از فضای مازاد انبار به سایر همکاران", "HomeWork")
+        )
+        db.expenseAndIncomeDao().insertIncomeCategories(defaultIncomeCategories)
+
+        // Initial sample income
+        val sampleIncome = com.example.data.model.IncomeEntity(
+            id = 1,
+            categoryId = 4,
+            categoryTitle = "فروش ضایعات و کارتن",
+            amount = 650000L,
+            jalaliDate = todayStr,
+            depositMethod = "BANK",
+            bankAccountId = 1,
+            accountName = "بانک ملت - جاری بازرگانی گلی",
+            title = "فروش کارتن‌های خالی تخلیه بار ماه گذشته",
+            notes = "تسویه نقدی و واریز به کارتخوان ملت"
+        )
+        db.expenseAndIncomeDao().insertIncome(sampleIncome)
     }
 }

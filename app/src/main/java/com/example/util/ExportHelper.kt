@@ -50,6 +50,63 @@ object ExportHelper {
     }
 
     /**
+     * چاپ مستقیم با سرویس چاپ سیستم‌عامل اندروید (Android PrintManager)
+     */
+    fun printPdf(context: Context, pdfFile: File, jobName: String = "چاپ فاکتور رسمی") {
+        try {
+            val printManager = context.getSystemService(Context.PRINT_SERVICE) as? android.print.PrintManager
+            if (printManager == null) {
+                shareFile(context, pdfFile, "application/pdf", jobName)
+                return
+            }
+            val printAdapter = object : android.print.PrintDocumentAdapter() {
+                override fun onLayout(
+                    oldAttributes: android.print.PrintAttributes?,
+                    newAttributes: android.print.PrintAttributes?,
+                    cancellationSignal: android.os.CancellationSignal?,
+                    callback: LayoutResultCallback?,
+                    extras: android.os.Bundle?
+                ) {
+                    if (cancellationSignal?.isCanceled == true) {
+                        callback?.onLayoutCancelled()
+                        return
+                    }
+                    val pdi = android.print.PrintDocumentInfo.Builder(jobName)
+                        .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                        .setPageCount(1)
+                        .build()
+                    callback?.onLayoutFinished(pdi, true)
+                }
+
+                override fun onWrite(
+                    pages: Array<out android.print.PageRange>?,
+                    destination: android.os.ParcelFileDescriptor?,
+                    cancellationSignal: android.os.CancellationSignal?,
+                    callback: WriteResultCallback?
+                ) {
+                    try {
+                        val input = java.io.FileInputStream(pdfFile)
+                        val output = java.io.FileOutputStream(destination?.fileDescriptor)
+                        val buf = ByteArray(1024)
+                        var bytesRead: Int
+                        while (input.read(buf).also { bytesRead = it } > 0) {
+                            output.write(buf, 0, bytesRead)
+                        }
+                        callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                        input.close()
+                        output.close()
+                    } catch (e: Exception) {
+                        callback?.onWriteFailed(e.message)
+                    }
+                }
+            }
+            printManager.print(jobName, printAdapter, android.print.PrintAttributes.Builder().build())
+        } catch (e: Exception) {
+            shareFile(context, pdfFile, "application/pdf", jobName)
+        }
+    }
+
+    /**
      * تولید PDF استاندارد و رسمی برای فاکتور فروش
      */
     fun exportInvoicePdf(
@@ -171,6 +228,10 @@ object ExportHelper {
             textPaint.color = Color.rgb(180, 20, 20)
             drawTextRtl(canvas, textPaint, "مبلغ نهایی قابل پرداخت: ${NumberFormatUtils.formatPrice(invoice.totalAmount)}", 560f, y + 74f)
 
+            textPaint.textSize = 9f
+            textPaint.color = Color.rgb(30, 70, 140)
+            drawTextRtl(canvas, textPaint, "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(invoice.totalAmount)} تومان", 560f, y + 92f)
+
             // Settlement Details
             textPaint.color = Color.BLACK
             textPaint.textSize = 8.5f
@@ -188,7 +249,7 @@ object ExportHelper {
             drawTextRtl(canvas, textPaint, "شماره شبا: ${storeProfile.defaultSheba}", 230f, y + 65f)
 
             // Signatures
-            y += 110f
+            y += 125f
             drawTextRtl(canvas, textPaint, "مهر و امضای فروشنده", 480f, y)
             drawTextRtl(canvas, textPaint, "امضا و تایید خریدار", 150f, y)
 

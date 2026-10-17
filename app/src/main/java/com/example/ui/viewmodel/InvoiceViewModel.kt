@@ -78,6 +78,18 @@ class InvoiceViewModel(
     private val _editingInvoiceNumber = MutableStateFlow<String?>(null)
     val editingInvoiceNumber: StateFlow<String?> = _editingInvoiceNumber.asStateFlow()
 
+    private val _editingPartyId = MutableStateFlow<Long?>(null)
+    val editingPartyId: StateFlow<Long?> = _editingPartyId.asStateFlow()
+
+    private val _editingPartyName = MutableStateFlow<String?>(null)
+    val editingPartyName: StateFlow<String?> = _editingPartyName.asStateFlow()
+
+    private val _editingPartyPhone = MutableStateFlow<String?>(null)
+    val editingPartyPhone: StateFlow<String?> = _editingPartyPhone.asStateFlow()
+
+    private val _editingOriginalDate = MutableStateFlow<String?>(null)
+    val editingOriginalDate: StateFlow<String?> = _editingOriginalDate.asStateFlow()
+
     // --- Pricing Mode: RETAIL (تکی) vs WHOLESALE (عمده) ---
     private val _pricingMode = MutableStateFlow("RETAIL")
     val pricingMode: StateFlow<String> = _pricingMode.asStateFlow()
@@ -121,18 +133,28 @@ class InvoiceViewModel(
     private val _selectedInvoiceForDetails = MutableStateFlow<InvoiceWithItems?>(null)
     val selectedInvoiceForDetails: StateFlow<InvoiceWithItems?> = _selectedInvoiceForDetails.asStateFlow()
 
+    // Print Format Choice: OFFICIAL_A4, OFFICIAL_A5, THERMAL
+    private val _selectedPrintFormat = MutableStateFlow("OFFICIAL_A4")
+    val selectedPrintFormat: StateFlow<String> = _selectedPrintFormat.asStateFlow()
+
+    fun setPrintFormat(format: String) {
+        _selectedPrintFormat.value = format
+    }
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
     fun setCurrentInvoiceType(type: String) {
         _currentInvoiceType.value = type
-        if (type == "PURCHASE" || type == "RETURN_PURCHASE") {
-            if (_selectedParty.value != null && _selectedParty.value?.partyType != "SUPPLIER") {
-                _selectedParty.value = allSuppliers.value.firstOrNull()
-            }
-        } else {
-            if (_selectedParty.value != null && _selectedParty.value?.partyType == "SUPPLIER") {
-                _selectedParty.value = allCustomers.value.firstOrNull()
+        if (_editingInvoiceId.value == null) {
+            if (type == "PURCHASE" || type == "RETURN_PURCHASE") {
+                if (_selectedParty.value != null && _selectedParty.value?.partyType != "SUPPLIER") {
+                    _selectedParty.value = allSuppliers.value.firstOrNull()
+                }
+            } else {
+                if (_selectedParty.value != null && _selectedParty.value?.partyType == "SUPPLIER") {
+                    _selectedParty.value = allCustomers.value.firstOrNull()
+                }
             }
         }
     }
@@ -141,6 +163,10 @@ class InvoiceViewModel(
         val inv = invoiceWithItems.invoice
         _editingInvoiceId.value = inv.id
         _editingInvoiceNumber.value = inv.invoiceNumber
+        _editingOriginalDate.value = inv.jalaliDate
+        _editingPartyId.value = inv.partyId
+        _editingPartyName.value = inv.partyName
+        _editingPartyPhone.value = inv.partyPhone
         _currentInvoiceType.value = inv.invoiceType
         _pricingMode.value = inv.pricingMode
         _discountAmount.value = inv.discountAmount
@@ -149,7 +175,31 @@ class InvoiceViewModel(
         _directExpenseType.value = inv.directExpenseType.ifBlank { "کرایه حمل و باربری" }
         _selectedCashDeskId.value = inv.cashDeskId
         _selectedBankAccountId.value = inv.bankAccountId
-        _selectedParty.value = allParties.value.find { it.id == inv.partyId }
+
+        // Retrieve existing party or create reliable fallback so party info is never lost or blank
+        val foundParty = allParties.value.find { it.id == inv.partyId }
+        if (foundParty != null) {
+            _selectedParty.value = foundParty
+        } else {
+            val fallbackParty = PartyEntity(
+                id = inv.partyId ?: 0L,
+                code = if ((inv.partyId ?: 0L) > 0) "P-${inv.partyId}" else "CUS-CASH",
+                name = inv.partyName.ifBlank { "مشتری نقدی" },
+                partyType = if (inv.invoiceType in listOf("PURCHASE", "RETURN_PURCHASE")) "SUPPLIER" else "CUSTOMER",
+                mobile = inv.partyPhone,
+                phone = inv.partyPhone
+            )
+            _selectedParty.value = fallbackParty
+
+            if (inv.partyId != null && inv.partyId > 0) {
+                viewModelScope.launch {
+                    val dbParty = partyRepo.getPartyById(inv.partyId)
+                    if (dbParty != null) {
+                        _selectedParty.value = dbParty
+                    }
+                }
+            }
+        }
 
         val productsMap = allProducts.value.associateBy { it.id }
         val loadedCart = invoiceWithItems.items.map { item ->
@@ -179,6 +229,10 @@ class InvoiceViewModel(
     fun cancelEditingInvoice() {
         _editingInvoiceId.value = null
         _editingInvoiceNumber.value = null
+        _editingPartyId.value = null
+        _editingPartyName.value = null
+        _editingPartyPhone.value = null
+        _editingOriginalDate.value = null
         clearCart()
     }
 
@@ -325,6 +379,11 @@ class InvoiceViewModel(
 
     fun selectParty(party: PartyEntity?) {
         _selectedParty.value = party
+        if (party != null) {
+            _editingPartyId.value = if (party.id > 0) party.id else null
+            _editingPartyName.value = party.name
+            _editingPartyPhone.value = party.mobile.ifBlank { party.phone }
+        }
     }
 
     fun setDiscount(amount: Long) {
@@ -522,22 +581,28 @@ class InvoiceViewModel(
             val effectiveCashDesk = cashDeskId ?: _selectedCashDeskId.value
             val effectiveBank = bankAccountId ?: _selectedBankAccountId.value
 
+            val isEditing = _editingInvoiceId.value != null
             val nextNumber = _editingInvoiceNumber.value ?: invoiceRepo.generateNextInvoiceNumber()
             val today = JalaliDate.now()
 
+            val effectivePartyId = party?.id ?: _editingPartyId.value
+            val effectivePartyName = party?.name ?: _editingPartyName.value ?: if (_currentInvoiceType.value in listOf("PURCHASE", "RETURN_PURCHASE")) "تأمین‌کننده نقدی" else "مشتری نقدی"
+            val effectivePartyPhone = party?.mobile?.ifBlank { party.phone } ?: _editingPartyPhone.value ?: ""
+            val effectiveDate = if (isEditing) (_editingOriginalDate.value ?: today.toStandardString()) else today.toStandardString()
+
             val effectiveInvoiceType = when (_currentInvoiceType.value) {
                 "PURCHASE", "RETURN_SALE", "RETURN_PURCHASE" -> _currentInvoiceType.value
-                else -> if (paymentType == "CREDIT" || party != null) "SALE" else "POS_SALE"
+                else -> if (paymentType == "CREDIT" || party != null || _editingPartyId.value != null) "SALE" else "POS_SALE"
             }
 
             val invoice = InvoiceEntity(
                 invoiceNumber = nextNumber,
                 invoiceType = effectiveInvoiceType,
-                jalaliDate = today.toStandardString(),
+                jalaliDate = effectiveDate,
                 timestamp = System.currentTimeMillis(),
-                partyId = party?.id,
-                partyName = party?.name ?: if (effectiveInvoiceType in listOf("PURCHASE", "RETURN_PURCHASE")) "تأمین‌کننده نقدی" else "مشتری نقدی",
-                partyPhone = party?.mobile ?: "",
+                partyId = effectivePartyId,
+                partyName = effectivePartyName,
+                partyPhone = effectivePartyPhone,
                 warehouseId = 1L,
                 warehouseName = "انبار مرکزی تهران",
                 subtotalAmount = subtotal,
@@ -575,12 +640,15 @@ class InvoiceViewModel(
                 )
             }
 
-            val isEditing = _editingInvoiceId.value != null
             val invoiceId = if (isEditing) {
                 val eId = _editingInvoiceId.value!!
                 invoiceRepo.updateExistingInvoice(eId, invoice.copy(id = eId), invoiceItems)
                 _editingInvoiceId.value = null
                 _editingInvoiceNumber.value = null
+                _editingPartyId.value = null
+                _editingPartyName.value = null
+                _editingPartyPhone.value = null
+                _editingOriginalDate.value = null
                 eId
             } else {
                 invoiceRepo.createInvoice(invoice, invoiceItems)

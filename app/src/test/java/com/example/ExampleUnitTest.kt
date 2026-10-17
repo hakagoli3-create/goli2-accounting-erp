@@ -85,4 +85,45 @@ class ExampleUnitTest {
         assertTrue(textReceipt.contains("INV-1001"))
         assertTrue(textReceipt.contains("روغن زیتون ۱ لیتری"))
     }
+
+    @Test
+    fun testExpenseAndIncomeModels() {
+        val expense = com.example.data.model.ExpenseEntity(
+            id = 1,
+            categoryId = 1,
+            categoryTitle = "اجاره محل",
+            amount = 15000000L,
+            jalaliDate = "۱۴۰۴/۰۱/۱۵",
+            paymentMethod = "BANK",
+            bankAccountId = 1,
+            accountName = "بانک ملت",
+            title = "اجاره دفتر فروشگاه",
+            notes = "چک بین بانکی"
+        )
+        assertEquals("اجاره محل", expense.categoryTitle)
+        assertEquals(15000000L, expense.amount)
+
+        val income = com.example.data.model.IncomeEntity(
+            id = 1,
+            categoryId = 2,
+            categoryTitle = "سود بانکی",
+            amount = 4500000L,
+            jalaliDate = "۱۴۰۴/۰۱/۳۱",
+            depositMethod = "BANK",
+            bankAccountId = 1,
+            accountName = "بانک ملت",
+            title = "سود سپرده کوتاه مدت",
+            notes = "واریز خودکار"
+        )
+        assertEquals(4500000L, income.amount)
+        assertEquals("سود بانکی", income.categoryTitle)
+    }
+
+    @Test
+    fun testVerbalPriceForOfficialInvoice() {
+        val invoiceAmount = 45750000L
+        val verbal = NumberFormatUtils.numberToPersianWords(invoiceAmount)
+        assertTrue(verbal.contains("چهل و پنج میلیون"))
+        assertTrue(verbal.contains("هفتصد و پنجاه هزار"))
+    }
 }

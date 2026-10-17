@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -74,6 +76,8 @@ fun DashboardScreen(
     val quickActions = listOf(
         QuickAction("صندوق POS", Icons.Default.PointOfSale, MaterialTheme.colorScheme.primary, "pos"),
         QuickAction("فاکتور رسمی", Icons.AutoMirrored.Filled.ReceiptLong, PersianGold, "invoices"),
+        QuickAction("هزینه‌ها", Icons.Default.TrendingDown, AccountingCreditRed, "expenses"),
+        QuickAction("درآمدها", Icons.Default.TrendingUp, AccountingDebitGreen, "incomes"),
         QuickAction("حسابداری مالی", Icons.AutoMirrored.Filled.Assignment, Color(0xFF1976D2), "accounting"),
         QuickAction("خزانه‌داری و چک", Icons.Default.AccountBalance, Color(0xFF7B1FA2), "treasury"),
         QuickAction("انبار و کالا", Icons.Default.Inventory2, Color(0xFF00796B), "inventory"),

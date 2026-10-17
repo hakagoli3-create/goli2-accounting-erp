@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.AccountingDao
+import com.example.data.dao.ExpenseAndIncomeDao
 import com.example.data.dao.InventoryDao
 import com.example.data.dao.InvoiceDao
 import com.example.data.dao.PartyDao
@@ -14,7 +15,11 @@ import com.example.data.model.AccountGroupEntity
 import com.example.data.model.BankAccountEntity
 import com.example.data.model.CashDeskEntity
 import com.example.data.model.ChequeEntity
+import com.example.data.model.ExpenseCategoryEntity
+import com.example.data.model.ExpenseEntity
 import com.example.data.model.GeneralAccountEntity
+import com.example.data.model.IncomeCategoryEntity
+import com.example.data.model.IncomeEntity
 import com.example.data.model.InventoryMovementEntity
 import com.example.data.model.InvoiceEntity
 import com.example.data.model.InvoiceItemEntity
@@ -43,9 +48,13 @@ import kotlinx.coroutines.launch
         BankAccountEntity::class,
         ChequeEntity::class,
         InvoiceEntity::class,
-        InvoiceItemEntity::class
+        InvoiceItemEntity::class,
+        ExpenseCategoryEntity::class,
+        ExpenseEntity::class,
+        IncomeCategoryEntity::class,
+        IncomeEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun partyDao(): PartyDao
     abstract fun treasuryDao(): TreasuryDao
     abstract fun invoiceDao(): InvoiceDao
+    abstract fun expenseAndIncomeDao(): ExpenseAndIncomeDao
 
     companion object {
         @Volatile
@@ -63,6 +73,70 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE warehouses ADD COLUMN isDefault INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS expense_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        code TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        iconName TEXT NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS expenses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        categoryId INTEGER NOT NULL,
+                        categoryTitle TEXT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        jalaliDate TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        paymentMethod TEXT NOT NULL,
+                        cashDeskId INTEGER,
+                        bankAccountId INTEGER,
+                        accountName TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        voucherId INTEGER
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_expenses_categoryId ON expenses(categoryId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_expenses_jalaliDate ON expenses(jalaliDate)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_expenses_timestamp ON expenses(timestamp)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS income_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        code TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        iconName TEXT NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS incomes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        categoryId INTEGER NOT NULL,
+                        categoryTitle TEXT NOT NULL,
+                        amount INTEGER NOT NULL,
+                        jalaliDate TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        depositMethod TEXT NOT NULL,
+                        cashDeskId INTEGER,
+                        bankAccountId INTEGER,
+                        accountName TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        voucherId INTEGER
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_incomes_categoryId ON incomes(categoryId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_incomes_jalaliDate ON incomes(jalaliDate)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_incomes_timestamp ON incomes(timestamp)")
             }
         }
 
@@ -84,7 +158,7 @@ abstract class AppDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
