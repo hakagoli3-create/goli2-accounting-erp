@@ -19,11 +19,15 @@ data class PartyEntity(
     val nationalCode: String = "", // کد ملی
     val economicCode: String = "", // کد اقتصادی
     val partyType: String = "CUSTOMER", // "CUSTOMER", "SUPPLIER", "BOTH"
+    val customerCategory: String = "RETAIL", // "WHOLESALE" (عمده), "RETAIL" (تکی / خرده‌فروشی)
     val creditLimit: Long = 0L, // سقف اعتبار به تومان (۰ یعنی بدون سقف یا نقد)
     val currentBalance: Long = 0L, // مانده حساب فعلی (مثبت = بدهکار به ما، منفی = بستانکار از ما)
     val isActive: Boolean = true,
     val notes: String = ""
 ) {
+    val isWholesaleCustomer: Boolean get() = (partyType in listOf("CUSTOMER", "BOTH")) && customerCategory == "WHOLESALE"
+    val isRetailCustomer: Boolean get() = (partyType in listOf("CUSTOMER", "BOTH")) && customerCategory != "WHOLESALE"
+
     /**
      * بررسی آیا مانده بدهی مشتری از سقف اعتبار عبور کرده یا نه
      */

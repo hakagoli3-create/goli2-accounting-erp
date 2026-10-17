@@ -18,6 +18,12 @@ interface PartyDao {
     @Query("SELECT * FROM parties WHERE partyType IN ('CUSTOMER', 'BOTH') ORDER BY name ASC")
     fun getAllCustomers(): Flow<List<PartyEntity>>
 
+    @Query("SELECT * FROM parties WHERE partyType IN ('CUSTOMER', 'BOTH') AND customerCategory = 'WHOLESALE' ORDER BY name ASC")
+    fun getWholesaleCustomers(): Flow<List<PartyEntity>>
+
+    @Query("SELECT * FROM parties WHERE partyType IN ('CUSTOMER', 'BOTH') AND (customerCategory = 'RETAIL' OR customerCategory = '') ORDER BY name ASC")
+    fun getRetailCustomers(): Flow<List<PartyEntity>>
+
     @Query("SELECT * FROM parties WHERE partyType IN ('SUPPLIER', 'BOTH') ORDER BY name ASC")
     fun getAllSuppliers(): Flow<List<PartyEntity>>
 

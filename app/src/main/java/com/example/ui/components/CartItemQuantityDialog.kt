@@ -40,7 +40,7 @@ import com.example.ui.viewmodel.CartItem
 fun CartItemQuantityDialog(
     cartItem: CartItem,
     onDismiss: () -> Unit,
-    onConfirmQuantity: (cartons: Double, units: Double) -> Unit
+    onConfirmQuantity: (cartons: Double, units: Double, rowDiscount: Long) -> Unit
 ) {
     val conv = if (cartItem.product.conversionRate > 0) cartItem.product.conversionRate else 1.0
 
@@ -51,9 +51,11 @@ fun CartItemQuantityDialog(
 
     var cartonsText by remember { mutableStateOf(if (initCartons > 0) initCartons.toString() else "0") }
     var unitsText by remember { mutableStateOf(if (initUnits > 0) (if (initUnits % 1.0 == 0.0) initUnits.toInt().toString() else initUnits.toString()) else "0") }
+    var rowDiscountText by remember { mutableStateOf(if (cartItem.discount > 0) cartItem.discount.toString() else "0") }
 
     val currentCartons = cartonsText.toDoubleOrNull() ?: 0.0
     val currentUnits = unitsText.toDoubleOrNull() ?: 0.0
+    val rowDiscount = rowDiscountText.toLongOrNull() ?: 0L
     val totalSecondary = (currentCartons * conv) + currentUnits
 
     Dialog(
@@ -80,7 +82,7 @@ fun CartItemQuantityDialog(
                 ) {
                     Column {
                         Text(
-                            text = "تنظیم تعداد کالا در فاکتور",
+                            text = "تنظیم تعداد و تخفیف کالا در فاکتور",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
@@ -136,6 +138,18 @@ fun CartItemQuantityDialog(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = rowDiscountText,
+                    onValueChange = { rowDiscountText = it },
+                    label = { Text("تخفیف ردیفی روی این کالا (تومان)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_row_discount_input")
+                )
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Card(
@@ -164,7 +178,7 @@ fun CartItemQuantityDialog(
 
                 Button(
                     onClick = {
-                        onConfirmQuantity(currentCartons, currentUnits)
+                        onConfirmQuantity(currentCartons, currentUnits, rowDiscount)
                         onDismiss()
                     },
                     modifier = Modifier
@@ -172,7 +186,7 @@ fun CartItemQuantityDialog(
                         .testTag("submit_item_quantity_btn"),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("ثبت تعداد در فاکتور", fontWeight = FontWeight.Bold)
+                    Text("ثبت تعداد و تخفیف در فاکتور", fontWeight = FontWeight.Bold)
                 }
             }
         }

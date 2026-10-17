@@ -38,6 +38,8 @@ data class ProductEntity(
     val retailPrice: Long = 0L, // قیمت مصرف‌کننده و خرده‌فروشی
     val wholesalePrice: Long = 0L, // قیمت عمده‌فروشی
     val partnerPrice: Long = 0L, // قیمت همکاری
+    val expiryDate: String = "", // تاریخ انقضا (شمسی)
+    val batchNumber: String = "", // شماره سری ساخت (Batch Number)
     val description: String = ""
 ) {
     /**

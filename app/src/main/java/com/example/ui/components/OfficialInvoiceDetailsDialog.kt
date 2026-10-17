@@ -142,11 +142,27 @@ fun OfficialInvoiceDetailsDialog(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
                         ) {
                             Text(
-                                text = "سود ناخالص فاکتور: ${NumberFormatUtils.formatPrice(grossProfit)}",
+                                text = "سود ناخالص: ${NumberFormatUtils.formatPrice(grossProfit)}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    val commission3Pct = if (inv.subtotalAmount > inv.discountAmount) (((inv.subtotalAmount - inv.discountAmount) * 0.03).toLong()) else 0L
+                    if (commission3Pct > 0) {
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = PersianGold.copy(alpha = 0.15f))
+                        ) {
+                            Text(
+                                text = "پورسانت (۳٪): ${NumberFormatUtils.formatPrice(commission3Pct)}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB78103),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
                             )
                         }
                     }

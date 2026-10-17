@@ -33,7 +33,7 @@ class InvoiceRepository(
         invoiceDao.getInvoiceWithItemsById(id)
 
     /**
-     * ثبت کامل فاکتور به همراه آپدیت انبارداری، خزانه‌داری، مانده حساب مشتری، و صدور سند اتوماتیک دوبل حسابداری
+     * ثبت کامل فاکتور (فروش، خرید، مرجوعی فروش، مرجوعی خرید) به همراه کاردکس انبارداری، خزانه‌داری، مانده حساب طرف‌حساب و صدور سند اتوماتیک دوبل
      */
     suspend fun createInvoice(
         invoice: InvoiceEntity,
@@ -41,7 +41,7 @@ class InvoiceRepository(
     ): Long {
         val invoiceId = invoiceDao.createInvoiceWithItems(invoice, items)
 
-        // اگر پیش‌فاکتور (PROFORMA) باشد، از انبار کسر نمی‌شود و سند قطعی حسابداری صادر نمی‌گردد
+        // اگر پیش‌فاکتور (PROFORMA) باشد، از انبار کسر نمی‌شود و سند قطعی صادر نمی‌گردد
         if (invoice.status == "PROFORMA") {
             return invoiceId
         }
@@ -51,16 +51,13 @@ class InvoiceRepository(
     }
 
     /**
-     * اعمال اثرات انبارداری، حسابداری، و خزانه‌داری یک فاکتور قطعی
+     * اعمال اثرات انبارداری، حسابداری، و خزانه‌داری انواع فاکتورها
      */
     private suspend fun applyInvoiceEffects(invoice: InvoiceEntity, items: List<InvoiceItemEntity>) {
-        // 1. به روزرسانی کاردکس و موجودی انبار برای هر قلم
+        // 1. کاردکس و موجودی انبار برای هر قلم
+        val isDeductingFromStock = invoice.invoiceType in listOf("SALE", "POS_SALE", "RETURN_PURCHASE")
         for (item in items) {
-            val stockDelta = if (invoice.invoiceType in listOf("SALE", "POS_SALE")) {
-                -item.quantityInSecondary // خروج از انبار
-            } else {
-                item.quantityInSecondary // ورود به انبار
-            }
+            val stockDelta = if (isDeductingFromStock) -item.quantityInSecondary else item.quantityInSecondary
 
             inventoryDao.insertMovement(
                 InventoryMovementEntity(
@@ -71,102 +68,99 @@ class InvoiceRepository(
                     referenceNumber = invoice.invoiceNumber,
                     quantitySecondary = stockDelta,
                     unitPrice = item.unitPrice,
-                    description = "فاکتور ${invoice.invoiceNumber} - ${item.productName}"
+                    description = "فاکتور ${invoice.invoiceType} ${invoice.invoiceNumber} - ${item.productName}"
                 )
             )
             inventoryDao.adjustStock(item.productId, stockDelta)
         }
 
-        // 2. به روزرسانی مانده حساب طرف حساب
+        // 2. مانده حساب طرف‌حساب
         if (invoice.partyId != null) {
-            val debtChange = when (invoice.paymentType) {
-                "CREDIT" -> invoice.totalAmount
-                "MIXED" -> invoice.creditAmount
-                else -> 0L
-            }
-            if (debtChange > 0) {
-                partyDao.updatePartyBalance(invoice.partyId, debtChange)
+            val creditAmount = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+            if (creditAmount > 0) {
+                val balanceDelta = when (invoice.invoiceType) {
+                    "SALE", "POS_SALE" -> creditAmount // بدهی مشتری زیاد می‌شود
+                    "PURCHASE" -> -creditAmount // ما به تامین‌کننده بدهکار می‌شویم
+                    "RETURN_SALE" -> -creditAmount // بدهی مشتری کم می‌شود
+                    "RETURN_PURCHASE" -> creditAmount // طلب ما زیاد می‌شود
+                    else -> creditAmount
+                }
+                partyDao.updatePartyBalance(invoice.partyId, balanceDelta)
             }
         }
 
-        // 3. به روزرسانی خزانه‌داری (صندوق و پوز)
+        // 3. خزانه‌داری (صندوق و پوز)
+        val treasuryDirection = when (invoice.invoiceType) {
+            "SALE", "POS_SALE", "RETURN_PURCHASE" -> 1 // ورود وجه
+            "PURCHASE", "RETURN_SALE" -> -1 // خروج وجه
+            else -> 1
+        }
         if (invoice.cashAmount > 0) {
-            treasuryDao.updateCashBalance(invoice.cashDeskId, invoice.cashAmount)
+            treasuryDao.updateCashBalance(invoice.cashDeskId, treasuryDirection * invoice.cashAmount)
         }
         if (invoice.posAmount > 0) {
-            treasuryDao.updateBankBalance(invoice.bankAccountId, invoice.posAmount)
+            treasuryDao.updateBankBalance(invoice.bankAccountId, treasuryDirection * invoice.posAmount)
         }
 
-        // 4. صدور خودکار سند دوبل حسابداری در دفتر روزنامه
+        // 4. صدور خودکار سند دوبل حسابداری
         val journalItems = mutableListOf<JournalItemEntity>()
-
-        // ردیف‌های بدهکار
-        if (invoice.cashAmount > 0) {
-            journalItems.add(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 101,
-                    subsidiaryCode = 10101, // صندوق
-                    partyId = null,
-                    description = "تسویه نقدی فاکتور شماره ${invoice.invoiceNumber}",
-                    debit = invoice.cashAmount,
-                    credit = 0L
-                )
-            )
+        when (invoice.invoiceType) {
+            "SALE", "POS_SALE" -> {
+                if (invoice.cashAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10101, null, "تسویه نقدی فاکتور فروش ${invoice.invoiceNumber}", invoice.cashAmount, 0L))
+                }
+                if (invoice.posAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10102, null, "تسویه پوز فاکتور فروش ${invoice.invoiceNumber}", invoice.posAmount, 0L))
+                }
+                val cr = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+                if (cr > 0) {
+                    journalItems.add(JournalItemEntity(0L, 102, 10201, invoice.partyId, "فروش نسیه به ${invoice.partyName} فاکتور ${invoice.invoiceNumber}", cr, 0L))
+                }
+                if (invoice.chequeAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 102, 10202, invoice.partyId, "دریافت چک بابت فاکتور ${invoice.invoiceNumber}", invoice.chequeAmount, 0L))
+                }
+                journalItems.add(JournalItemEntity(0L, 601, 60101, invoice.partyId, "درآمد فروش کالا - فاکتور ${invoice.invoiceNumber}", 0L, invoice.totalAmount))
+            }
+            "PURCHASE" -> {
+                journalItems.add(JournalItemEntity(0L, 103, 10301, invoice.partyId, "خرید کالا و افزایش انبار - فاکتور خرید ${invoice.invoiceNumber}", invoice.totalAmount, 0L))
+                if (invoice.cashAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10101, null, "پرداخت نقدی خرید ${invoice.invoiceNumber}", 0L, invoice.cashAmount))
+                }
+                if (invoice.posAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10102, null, "پرداخت پوز/بانک خرید ${invoice.invoiceNumber}", 0L, invoice.posAmount))
+                }
+                val cr = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+                if (cr > 0) {
+                    journalItems.add(JournalItemEntity(0L, 301, 30101, invoice.partyId, "خرید نسیه از ${invoice.partyName} فاکتور ${invoice.invoiceNumber}", 0L, cr))
+                }
+                if (invoice.chequeAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 301, 30102, invoice.partyId, "پرداخت چک بابت خرید ${invoice.invoiceNumber}", 0L, invoice.chequeAmount))
+                }
+            }
+            "RETURN_SALE" -> {
+                journalItems.add(JournalItemEntity(0L, 601, 60101, invoice.partyId, "برگشت از فروش و مرجوعی کالا - فاکتور ${invoice.invoiceNumber}", invoice.totalAmount, 0L))
+                val cr = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+                if (cr > 0) {
+                    journalItems.add(JournalItemEntity(0L, 102, 10201, invoice.partyId, "کاهش بدهی مشتری بابت مرجوعی ${invoice.invoiceNumber}", 0L, cr))
+                }
+                if (invoice.cashAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10101, null, "استرداد وجه نقد مرجوعی ${invoice.invoiceNumber}", 0L, invoice.cashAmount))
+                }
+                if (invoice.posAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10102, null, "استرداد پوز/بانک مرجوعی ${invoice.invoiceNumber}", 0L, invoice.posAmount))
+                }
+            }
+            "RETURN_PURCHASE" -> {
+                val cr = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+                if (cr > 0) {
+                    journalItems.add(JournalItemEntity(0L, 301, 30101, invoice.partyId, "کاهش طلب تامین‌کننده بابت مرجوعی کالا ${invoice.invoiceNumber}", cr, 0L))
+                }
+                if (invoice.cashAmount > 0) {
+                    journalItems.add(JournalItemEntity(0L, 101, 10101, null, "دریافت وجه نقد بابت برگشت از خرید ${invoice.invoiceNumber}", invoice.cashAmount, 0L))
+                }
+                journalItems.add(JournalItemEntity(0L, 103, 10301, invoice.partyId, "خروج کالای مرجوعی به تامین‌کننده ${invoice.invoiceNumber}", 0L, invoice.totalAmount))
+            }
         }
-        if (invoice.posAmount > 0) {
-            journalItems.add(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 101,
-                    subsidiaryCode = 10102, // بانک و پوز
-                    partyId = null,
-                    description = "تسویه پوز فاکتور شماره ${invoice.invoiceNumber}",
-                    debit = invoice.posAmount,
-                    credit = 0L
-                )
-            )
-        }
-        val creditAmount = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
-        if (creditAmount > 0) {
-            journalItems.add(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 102,
-                    subsidiaryCode = 10201, // بدهکاران تجاری
-                    partyId = invoice.partyId,
-                    description = "فروش نسیه به ${invoice.partyName} فاکتور ${invoice.invoiceNumber}",
-                    debit = creditAmount,
-                    credit = 0L
-                )
-            )
-        }
-        if (invoice.chequeAmount > 0) {
-            journalItems.add(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 102,
-                    subsidiaryCode = 10202, // اسناد دریافتنی
-                    partyId = invoice.partyId,
-                    description = "دریافت چک بابت فاکتور ${invoice.invoiceNumber}",
-                    debit = invoice.chequeAmount,
-                    credit = 0L
-                )
-            )
-        }
-
-        // ردیف بستانکار: فروش کالا و خدمات
-        journalItems.add(
-            JournalItemEntity(
-                voucherId = 0L,
-                generalCode = 601,
-                subsidiaryCode = 60101, // درآمد فروش
-                partyId = invoice.partyId,
-                description = "درآمد حاصل از فروش کالا - فاکتور ${invoice.invoiceNumber}",
-                debit = 0L,
-                credit = invoice.totalAmount
-            )
-        )
 
         val totalDebit = journalItems.sumOf { it.debit }
         val totalCredit = journalItems.sumOf { it.credit }
@@ -176,7 +170,7 @@ class InvoiceRepository(
                 JournalEntryEntity(
                     voucherNumber = nextVoucherNumber,
                     jalaliDate = invoice.jalaliDate,
-                    description = "سند اتوماتیک فاکتور فروش شماره ${invoice.invoiceNumber}",
+                    description = "سند خودکار ${invoice.invoiceType} شماره ${invoice.invoiceNumber}",
                     isBalanced = true,
                     status = "FINAL"
                 ),
@@ -207,77 +201,50 @@ class InvoiceRepository(
         val invoice = invoiceWithItems.invoice
         if (invoice.status == "VOID") return false
 
-        // اگر فاکتور قطعی بود، اثرات انبارداری، مشتری و خزانه‌داری را معکوس می‌کنیم
         if (invoice.status == "FINAL") {
-            // 1. برگشت موجودی به انبار
+            val isDeductingFromStock = invoice.invoiceType in listOf("SALE", "POS_SALE", "RETURN_PURCHASE")
             for (item in invoiceWithItems.items) {
-                val reverseStock = item.quantityInSecondary // بازگشت به انبار
+                val reverseStock = if (isDeductingFromStock) item.quantityInSecondary else -item.quantityInSecondary
                 inventoryDao.insertMovement(
                     InventoryMovementEntity(
                         productId = item.productId,
                         warehouseId = invoice.warehouseId,
                         jalaliDate = JalaliDate.now().toStandardString(),
-                        documentType = "RETURN_SALE",
+                        documentType = "VOID_" + invoice.invoiceType,
                         referenceNumber = "VOID-${invoice.invoiceNumber}",
                         quantitySecondary = reverseStock,
                         unitPrice = item.unitPrice,
-                        description = "ابطال فاکتور ${invoice.invoiceNumber} - برگشت ${item.productName} به انبار"
+                        description = "ابطال فاکتور ${invoice.invoiceNumber} - اصلاح موجودی ${item.productName}"
                     )
                 )
                 inventoryDao.adjustStock(item.productId, reverseStock)
             }
 
-            // 2. برگشت مانده حساب بدهی مشتری
             if (invoice.partyId != null) {
-                val debtChange = when (invoice.paymentType) {
-                    "CREDIT" -> invoice.totalAmount
-                    "MIXED" -> invoice.creditAmount
-                    else -> 0L
-                }
-                if (debtChange > 0) {
-                    partyDao.updatePartyBalance(invoice.partyId, -debtChange)
+                val creditAmount = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+                if (creditAmount > 0) {
+                    val balanceDelta = when (invoice.invoiceType) {
+                        "SALE", "POS_SALE" -> -creditAmount
+                        "PURCHASE" -> creditAmount
+                        "RETURN_SALE" -> creditAmount
+                        "RETURN_PURCHASE" -> -creditAmount
+                        else -> -creditAmount
+                    }
+                    partyDao.updatePartyBalance(invoice.partyId, balanceDelta)
                 }
             }
 
-            // 3. کسر از صندوق / بانک بابت برگشت وجه
+            val treasuryReverseDir = when (invoice.invoiceType) {
+                "SALE", "POS_SALE", "RETURN_PURCHASE" -> -1
+                "PURCHASE", "RETURN_SALE" -> 1
+                else -> -1
+            }
             if (invoice.cashAmount > 0) {
-                treasuryDao.updateCashBalance(invoice.cashDeskId, -invoice.cashAmount)
+                treasuryDao.updateCashBalance(invoice.cashDeskId, treasuryReverseDir * invoice.cashAmount)
             }
             if (invoice.posAmount > 0) {
-                treasuryDao.updateBankBalance(invoice.bankAccountId, -invoice.posAmount)
+                treasuryDao.updateBankBalance(invoice.bankAccountId, treasuryReverseDir * invoice.posAmount)
             }
-
-            // 4. صدور سند معکوس در حسابداری
-            val nextVoucher = accountingDao.getMaxVoucherNumber() + 1
-            accountingDao.createVoucherWithItems(
-                JournalEntryEntity(
-                    voucherNumber = nextVoucher,
-                    jalaliDate = JalaliDate.now().toStandardString(),
-                    description = "سند ابطال فاکتور فروش شماره ${invoice.invoiceNumber}",
-                    isBalanced = true,
-                    status = "FINAL"
-                ),
-                listOf(
-                    JournalItemEntity(
-                        voucherId = 0L,
-                        generalCode = 601,
-                        subsidiaryCode = 60101,
-                        partyId = invoice.partyId,
-                        description = "ابطال درآمد فروش فاکتور ${invoice.invoiceNumber}",
-                        debit = invoice.totalAmount,
-                        credit = 0L
-                    ),
-                    JournalItemEntity(
-                        voucherId = 0L,
-                        generalCode = 101,
-                        subsidiaryCode = if (invoice.posAmount > 0) 10102 else 10101,
-                        partyId = null,
-                        description = "برگشت تسویه فاکتور باطل شده ${invoice.invoiceNumber}",
-                        debit = 0L,
-                        credit = invoice.totalAmount
-                    )
-                )
-            )
         }
 
         invoiceDao.setInvoiceStatus(invoiceId, "VOID")

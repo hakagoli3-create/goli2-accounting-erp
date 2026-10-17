@@ -105,6 +105,8 @@ fun InvoiceScreen(
     val invoices by viewModel.allInvoices.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val customers by viewModel.allCustomers.collectAsStateWithLifecycle()
+    val suppliers by viewModel.allSuppliers.collectAsStateWithLifecycle()
+    val currentInvoiceType by viewModel.currentInvoiceType.collectAsStateWithLifecycle()
     val cartItems by viewModel.cartItems.collectAsStateWithLifecycle()
     val selectedParty by viewModel.selectedParty.collectAsStateWithLifecycle()
     val discount by viewModel.discountAmount.collectAsStateWithLifecycle()
@@ -189,6 +191,8 @@ fun InvoiceScreen(
                 1 -> InvoiceEditorContent(
                     products = products,
                     customers = customers,
+                    suppliers = suppliers,
+                    currentInvoiceType = currentInvoiceType,
                     cartItems = cartItems,
                     selectedParty = selectedParty,
                     discount = discount,
@@ -198,6 +202,7 @@ fun InvoiceScreen(
                     directExpense = viewModel.directExpenseAmount.collectAsStateWithLifecycle().value,
                     directExpenseType = viewModel.directExpenseType.collectAsStateWithLifecycle().value,
                     issueAsProforma = viewModel.issueAsProforma.collectAsStateWithLifecycle().value,
+                    onInvoiceTypeChange = { viewModel.setCurrentInvoiceType(it) },
                     onDirectExpenseChange = { amt, typ -> viewModel.setDirectExpense(amt, typ) },
                     onToggleProforma = { viewModel.setIssueAsProforma(it) },
                     onPricingModeChange = { viewModel.setPricingMode(it) },
@@ -205,7 +210,7 @@ fun InvoiceScreen(
                     onAddToCart = { p, isPrimary -> viewModel.addToCart(p, isPrimary = isPrimary) },
                     onToggleUnit = { idx -> viewModel.toggleCartItemUnit(idx) },
                     onUpdateQuantity = { idx, q -> viewModel.updateCartItemQuantity(idx, q) },
-                    onSetCartItemQuantities = { idx, c, u -> viewModel.setCartItemQuantities(idx, c, u) },
+                    onSetCartItemQuantities = { idx, c, u, disc -> viewModel.setCartItemQuantities(idx, c, u, disc) },
                     onDiscountChange = { viewModel.setDiscount(it) },
                     onToggleTax = { viewModel.toggleTax(it) },
                     onScanBarcode = { viewModel.scanBarcode(it) },
@@ -301,6 +306,17 @@ private fun InvoiceListContent(
         return
     }
 
+    var filterType by remember { mutableStateOf("ALL") }
+    val filteredInvoices = remember(invoices, filterType) {
+        when (filterType) {
+            "SALE" -> invoices.filter { it.invoice.invoiceType in listOf("SALE", "POS_SALE") && it.invoice.status != "PROFORMA" }
+            "PURCHASE" -> invoices.filter { it.invoice.invoiceType == "PURCHASE" }
+            "RETURN" -> invoices.filter { it.invoice.invoiceType in listOf("RETURN_SALE", "RETURN_PURCHASE") }
+            "PROFORMA" -> invoices.filter { it.invoice.status == "PROFORMA" }
+            else -> invoices
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -315,7 +331,7 @@ private fun InvoiceListContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "لیست فاکتورها (${invoices.size} فقره)",
+                    text = "لیست فاکتورها (${filteredInvoices.size} فقره)",
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -343,7 +359,55 @@ private fun InvoiceListContent(
             }
         }
 
-        items(invoices) { inv ->
+        // Filter chips row
+        item {
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                item {
+                    FilterChip(
+                        selected = filterType == "ALL",
+                        onClick = { filterType = "ALL" },
+                        label = { Text("همه (${invoices.size})", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    val count = invoices.count { it.invoice.invoiceType in listOf("SALE", "POS_SALE") && it.invoice.status != "PROFORMA" }
+                    FilterChip(
+                        selected = filterType == "SALE",
+                        onClick = { filterType = "SALE" },
+                        label = { Text("فروش ($count)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    val count = invoices.count { it.invoice.invoiceType == "PURCHASE" }
+                    FilterChip(
+                        selected = filterType == "PURCHASE",
+                        onClick = { filterType = "PURCHASE" },
+                        label = { Text("خرید ($count)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    val count = invoices.count { it.invoice.invoiceType in listOf("RETURN_SALE", "RETURN_PURCHASE") }
+                    FilterChip(
+                        selected = filterType == "RETURN",
+                        onClick = { filterType = "RETURN" },
+                        label = { Text("مرجوعی ($count)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    val count = invoices.count { it.invoice.status == "PROFORMA" }
+                    FilterChip(
+                        selected = filterType == "PROFORMA",
+                        onClick = { filterType = "PROFORMA" },
+                        label = { Text("پیش‌فاکتور ($count)", fontSize = 11.sp) }
+                    )
+                }
+            }
+        }
+
+        items(filteredInvoices) { inv ->
             val invoice = inv.invoice
             val isProforma = invoice.status == "PROFORMA"
             val isVoid = invoice.status == "VOID"
@@ -385,16 +449,23 @@ private fun InvoiceListContent(
                             val statusTitle = when {
                                 isVoid -> "ابطال شده"
                                 isProforma -> "پیش‌فاکتور"
-                                else -> if (invoice.pricingMode == "WHOLESALE") "عمده" else "تکی"
+                                invoice.invoiceType == "PURCHASE" -> "فاکتور خرید"
+                                invoice.invoiceType == "RETURN_SALE" -> "مرجوعی فروش"
+                                invoice.invoiceType == "RETURN_PURCHASE" -> "مرجوعی خرید"
+                                else -> if (invoice.pricingMode == "WHOLESALE") "فروش عمده" else "فروش تکی"
                             }
                             val statusBg = when {
                                 isVoid -> AccountingCreditRed.copy(alpha = 0.2f)
                                 isProforma -> PersianGold.copy(alpha = 0.25f)
+                                invoice.invoiceType == "PURCHASE" -> Color(0xFFE8F5E9)
+                                invoice.invoiceType in listOf("RETURN_SALE", "RETURN_PURCHASE") -> Color(0xFFFFE0B2)
                                 else -> MaterialTheme.colorScheme.primaryContainer
                             }
                             val statusFg = when {
                                 isVoid -> AccountingCreditRed
                                 isProforma -> Color(0xFF8D6E63)
+                                invoice.invoiceType == "PURCHASE" -> Color(0xFF2E7D32)
+                                invoice.invoiceType in listOf("RETURN_SALE", "RETURN_PURCHASE") -> Color(0xFFE65100)
                                 else -> MaterialTheme.colorScheme.primary
                             }
 
@@ -494,6 +565,8 @@ private fun InvoiceListContent(
 private fun InvoiceEditorContent(
     products: List<ProductEntity>,
     customers: List<PartyEntity>,
+    suppliers: List<PartyEntity>,
+    currentInvoiceType: String,
     cartItems: List<CartItem>,
     selectedParty: PartyEntity?,
     discount: Long,
@@ -503,6 +576,7 @@ private fun InvoiceEditorContent(
     directExpense: Long,
     directExpenseType: String,
     issueAsProforma: Boolean,
+    onInvoiceTypeChange: (String) -> Unit,
     onDirectExpenseChange: (Long, String) -> Unit,
     onToggleProforma: (Boolean) -> Unit,
     onPricingModeChange: (String) -> Unit,
@@ -510,12 +584,13 @@ private fun InvoiceEditorContent(
     onAddToCart: (ProductEntity, Boolean) -> Unit,
     onToggleUnit: (Int) -> Unit,
     onUpdateQuantity: (Int, Double) -> Unit,
-    onSetCartItemQuantities: (Int, Double, Double) -> Unit,
+    onSetCartItemQuantities: (Int, Double, Double, Long) -> Unit,
     onDiscountChange: (Long) -> Unit,
     onToggleTax: (Boolean) -> Unit,
     onScanBarcode: (String) -> Unit,
     onOpenSettlement: () -> Unit
 ) {
+    val isPurchase = currentInvoiceType in listOf("PURCHASE", "RETURN_PURCHASE")
     var customerMenuExpanded by remember { mutableStateOf(false) }
     var productMenuExpanded by remember { mutableStateOf(false) }
     var selectedProductToAdd by remember { mutableStateOf<ProductEntity?>(null) }
@@ -544,8 +619,8 @@ private fun InvoiceEditorContent(
             CartItemQuantityDialog(
                 cartItem = cartItems[idx],
                 onDismiss = { editingCartIndex = null },
-                onConfirmQuantity = { cartons, units ->
-                    onSetCartItemQuantities(idx, cartons, units)
+                onConfirmQuantity = { cartons, units, rowDiscount ->
+                    onSetCartItemQuantities(idx, cartons, units, rowDiscount)
                 }
             )
         }
@@ -558,6 +633,53 @@ private fun InvoiceEditorContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {
+        // Document Type Selection (نوع فاکتور / سند)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "نوع فاکتور و عملیات انبارداری:",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = currentInvoiceType == "SALE",
+                            onClick = { onInvoiceTypeChange("SALE") },
+                            label = { Text("فروش کالا", fontSize = 11.sp, fontWeight = if (currentInvoiceType == "SALE") FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f).testTag("doc_type_sale")
+                        )
+                        FilterChip(
+                            selected = currentInvoiceType == "PURCHASE",
+                            onClick = { onInvoiceTypeChange("PURCHASE") },
+                            label = { Text("فاکتور خرید", fontSize = 11.sp, fontWeight = if (currentInvoiceType == "PURCHASE") FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f).testTag("doc_type_purchase")
+                        )
+                        FilterChip(
+                            selected = currentInvoiceType == "RETURN_SALE",
+                            onClick = { onInvoiceTypeChange("RETURN_SALE") },
+                            label = { Text("مرجوعی فروش", fontSize = 10.sp, fontWeight = if (currentInvoiceType == "RETURN_SALE") FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f).testTag("doc_type_return_sale")
+                        )
+                        FilterChip(
+                            selected = currentInvoiceType == "RETURN_PURCHASE",
+                            onClick = { onInvoiceTypeChange("RETURN_PURCHASE") },
+                            label = { Text("مرجوعی خرید", fontSize = 10.sp, fontWeight = if (currentInvoiceType == "RETURN_PURCHASE") FontWeight.Bold else FontWeight.Normal) },
+                            modifier = Modifier.weight(1f).testTag("doc_type_return_purchase")
+                        )
+                    }
+                }
+            }
+        }
+
         // Pricing Mode Switcher (عمده vs تکی)
         item {
             Card(
@@ -573,38 +695,45 @@ private fun InvoiceEditorContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "نظام قیمت‌گذاری فاکتور:",
+                            text = if (isPurchase) "نظام قیمت‌گذاری خرید:" else "نظام قیمت‌گذاری فروش:",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = if (pricingMode == "WHOLESALE") "نرخ همکار و عمده‌فروشی اعمال می‌شود" else "نرخ تکی و مصرف‌کننده اعمال می‌شود",
+                            text = if (isPurchase) "قیمت‌های خرید درج شده در انبار اعمال می‌گردند"
+                            else if (pricingMode == "WHOLESALE") "نرخ همکار و عمده‌فروشی اعمال می‌شود"
+                            else "نرخ تکی و مصرف‌کننده اعمال می‌شود",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(
-                            selected = pricingMode == "RETAIL",
-                            onClick = { onPricingModeChange("RETAIL") },
-                            label = { Text("فروش تکی") },
-                            modifier = Modifier.testTag("pricing_mode_retail")
-                        )
-                        FilterChip(
-                            selected = pricingMode == "WHOLESALE",
-                            onClick = { onPricingModeChange("WHOLESALE") },
-                            label = { Text("فروش عمده", fontWeight = FontWeight.Bold) },
-                            modifier = Modifier.testTag("pricing_mode_wholesale")
-                        )
+                    if (!isPurchase) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(
+                                selected = pricingMode == "RETAIL",
+                                onClick = { onPricingModeChange("RETAIL") },
+                                label = { Text("فروش تکی") },
+                                modifier = Modifier.testTag("pricing_mode_retail")
+                            )
+                            FilterChip(
+                                selected = pricingMode == "WHOLESALE",
+                                onClick = { onPricingModeChange("WHOLESALE") },
+                                label = { Text("فروش عمده", fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.testTag("pricing_mode_wholesale")
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Customer Selection & Credit Limit
+        // Party Selection & Credit Limit
         item {
+            val partiesList = if (isPurchase) suppliers else customers
+            val partyLabel = if (isPurchase) "تامین‌کننده / شرکت پخش" else "مشتری / طرف حساب"
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -612,7 +741,7 @@ private fun InvoiceEditorContent(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "طرف حساب و شرایط اعتباری",
+                        text = "$partyLabel و وضعیت حساب",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -622,10 +751,10 @@ private fun InvoiceEditorContent(
                         onExpandedChange = { customerMenuExpanded = !customerMenuExpanded }
                     ) {
                         OutlinedTextField(
-                            value = selectedParty?.let { "${it.name} (${it.code})" } ?: "انتخاب مشتری...",
+                            value = selectedParty?.let { "${it.name} (${it.code})" } ?: "انتخاب $partyLabel...",
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("مشتری") },
+                            label = { Text(partyLabel) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = customerMenuExpanded) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -636,11 +765,18 @@ private fun InvoiceEditorContent(
                             expanded = customerMenuExpanded,
                             onDismissRequest = { customerMenuExpanded = false }
                         ) {
-                            customers.forEach { customer ->
+                            partiesList.forEach { party ->
                                 DropdownMenuItem(
-                                    text = { Text("${customer.name} - سقف اعتبار: ${NumberFormatUtils.formatPrice(customer.creditLimit)}") },
+                                    text = {
+                                        Column {
+                                            Text(party.name, fontWeight = FontWeight.Bold)
+                                            if (party.companyName.isNotBlank()) {
+                                                Text(party.companyName, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    },
                                     onClick = {
-                                        onSelectParty(customer)
+                                        onSelectParty(party)
                                         customerMenuExpanded = false
                                     }
                                 )

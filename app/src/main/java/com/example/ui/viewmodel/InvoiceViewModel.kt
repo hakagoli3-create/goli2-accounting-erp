@@ -32,11 +32,13 @@ data class CartItem(
     val product: ProductEntity,
     val isPrimaryUnit: Boolean, // آیا واحد اصلی (کارتن) است یا فرعی (عدد)
     val quantity: Double,
-    val unitPrice: Long
+    val unitPrice: Long,
+    val discount: Long = 0L // تخفیف ردیفی روی این قلم
 ) {
     val unitName: String get() = if (isPrimaryUnit) product.primaryUnit else product.secondaryUnit
     val quantityInSecondary: Double get() = if (isPrimaryUnit) quantity * product.conversionRate else quantity
-    val totalPrice: Long get() = (quantity * unitPrice).toLong()
+    val rawTotal: Long get() = (quantity * unitPrice).toLong()
+    val totalPrice: Long get() = if (rawTotal > discount) rawTotal - discount else 0L
 }
 
 class InvoiceViewModel(
@@ -55,11 +57,21 @@ class InvoiceViewModel(
     val allCustomers: StateFlow<List<PartyEntity>> = partyRepo.allCustomers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allSuppliers: StateFlow<List<PartyEntity>> = partyRepo.allSuppliers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allParties: StateFlow<List<PartyEntity>> = partyRepo.allParties
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allCashDesks: StateFlow<List<CashDeskEntity>> = treasuryRepo.allCashDesks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allBankAccounts: StateFlow<List<BankAccountEntity>> = treasuryRepo.allBankAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- Invoice Type: SALE, PURCHASE, RETURN_SALE, RETURN_PURCHASE ---
+    private val _currentInvoiceType = MutableStateFlow("SALE")
+    val currentInvoiceType: StateFlow<String> = _currentInvoiceType.asStateFlow()
 
     // --- Pricing Mode: RETAIL (تکی) vs WHOLESALE (عمده) ---
     private val _pricingMode = MutableStateFlow("RETAIL")
@@ -107,13 +119,20 @@ class InvoiceViewModel(
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
+    fun setCurrentInvoiceType(type: String) {
+        _currentInvoiceType.value = type
+        clearCart()
+    }
+
     fun setPricingMode(mode: String) {
         _pricingMode.value = mode
-        // Refresh cart items with new pricing mode
         val isWholesale = mode == "WHOLESALE"
+        val isPurchase = _currentInvoiceType.value in listOf("PURCHASE", "RETURN_PURCHASE")
         val updated = _cartItems.value.map { item ->
             val p = item.product
-            val price = if (isWholesale) {
+            val price = if (isPurchase) {
+                if (item.isPrimaryUnit) (p.buyPrice * p.conversionRate).toLong() else p.buyPrice
+            } else if (isWholesale) {
                 if (item.isPrimaryUnit) (p.wholesalePrice * p.conversionRate).toLong() else p.wholesalePrice
             } else {
                 if (item.isPrimaryUnit) (p.retailPrice * p.conversionRate).toLong() else p.retailPrice
@@ -133,10 +152,13 @@ class InvoiceViewModel(
 
     fun addToCart(product: ProductEntity, isPrimary: Boolean = false, forceWholesale: Boolean? = null) {
         val isWholesale = forceWholesale ?: (_pricingMode.value == "WHOLESALE")
+        val isPurchase = _currentInvoiceType.value in listOf("PURCHASE", "RETURN_PURCHASE")
         val current = _cartItems.value.toMutableList()
         val index = current.indexOfFirst { it.product.id == product.id && it.isPrimaryUnit == isPrimary }
 
-        val price = if (isWholesale) {
+        val price = if (isPurchase) {
+            if (isPrimary) (product.buyPrice * product.conversionRate).toLong() else product.buyPrice
+        } else if (isWholesale) {
             if (isPrimary) (product.wholesalePrice * product.conversionRate).toLong() else product.wholesalePrice
         } else {
             if (isPrimary) (product.retailPrice * product.conversionRate).toLong() else product.retailPrice
@@ -151,7 +173,8 @@ class InvoiceViewModel(
                     product = product,
                     isPrimaryUnit = isPrimary,
                     quantity = 1.0,
-                    unitPrice = price
+                    unitPrice = price,
+                    discount = 0L
                 )
             )
         }
@@ -164,7 +187,10 @@ class InvoiceViewModel(
             val item = current[index]
             val newIsPrimary = !item.isPrimaryUnit
             val isWholesale = _pricingMode.value == "WHOLESALE"
-            val price = if (isWholesale) {
+            val isPurchase = _currentInvoiceType.value in listOf("PURCHASE", "RETURN_PURCHASE")
+            val price = if (isPurchase) {
+                if (newIsPrimary) (item.product.buyPrice * item.product.conversionRate).toLong() else item.product.buyPrice
+            } else if (isWholesale) {
                 if (newIsPrimary) (item.product.wholesalePrice * item.product.conversionRate).toLong() else item.product.wholesalePrice
             } else {
                 if (newIsPrimary) (item.product.retailPrice * item.product.conversionRate).toLong() else item.product.retailPrice
@@ -186,6 +212,22 @@ class InvoiceViewModel(
         }
     }
 
+    fun updateCartItemPrice(index: Int, newPrice: Long) {
+        val current = _cartItems.value.toMutableList()
+        if (index in current.indices) {
+            current[index] = current[index].copy(unitPrice = newPrice)
+            _cartItems.value = current
+        }
+    }
+
+    fun updateCartItemDiscount(index: Int, discount: Long) {
+        val current = _cartItems.value.toMutableList()
+        if (index in current.indices) {
+            current[index] = current[index].copy(discount = discount)
+            _cartItems.value = current
+        }
+    }
+
     fun setDirectExpense(amount: Long, type: String = "کرایه حمل و باربری") {
         _directExpenseAmount.value = amount
         _directExpenseType.value = type
@@ -195,10 +237,7 @@ class InvoiceViewModel(
         _issueAsProforma.value = isProforma
     }
 
-    /**
-     * تنظیم تعداد کارتن و تعداد تکی به طور همزمان برای هر قلم کالا
-     */
-    fun setCartItemQuantities(index: Int, cartons: Double, units: Double) {
+    fun setCartItemQuantities(index: Int, cartons: Double, units: Double, rowDiscount: Long = 0L) {
         val current = _cartItems.value.toMutableList()
         if (index in current.indices) {
             val item = current[index]
@@ -208,7 +247,7 @@ class InvoiceViewModel(
                 current.removeAt(index)
             } else {
                 val qty = if (item.isPrimaryUnit) totalInSecondary / conversion else totalInSecondary
-                current[index] = item.copy(quantity = qty)
+                current[index] = item.copy(quantity = qty, discount = rowDiscount)
             }
             _cartItems.value = current
         }
@@ -225,6 +264,14 @@ class InvoiceViewModel(
 
     fun selectParty(party: PartyEntity?) {
         _selectedParty.value = party
+        // If customer has a specific category, automatically align pricing mode
+        if (party != null && party.partyType in listOf("CUSTOMER", "BOTH")) {
+            if (party.customerCategory == "WHOLESALE") {
+                setPricingMode("WHOLESALE")
+            } else {
+                setPricingMode("RETAIL")
+            }
+        }
     }
 
     fun setDiscount(amount: Long) {
@@ -262,12 +309,8 @@ class InvoiceViewModel(
         }
     }
 
-    /**
-     * محاسبه سود ناخالص یک فاکتور بر اساس بهای تمام شده خرید (COGS)
-     */
     fun calculateGrossProfit(inv: InvoiceWithItems): Long {
         val totalRevenue = inv.invoice.subtotalAmount - inv.invoice.discountAmount
-        // بهای تمام شده بر اساس buyPrice اقلام کالا
         val productMap = allProducts.value.associateBy { it.id }
         val cogs = inv.items.sumOf { item ->
             val p = productMap[item.productId]
@@ -278,8 +321,13 @@ class InvoiceViewModel(
     }
 
     /**
-     * تبدیل سریع پیش‌فاکتور به فاکتور فروش قطعی
+     * محاسبه پورسانت ویزیتور یا فروشنده بر اساس درصد تعیین شده
      */
+    fun calculateVisitorCommission(inv: InvoiceWithItems, ratePercent: Double = 3.0): Long {
+        val netSales = inv.invoice.subtotalAmount - inv.invoice.discountAmount
+        return if (netSales > 0) ((netSales * ratePercent) / 100.0).toLong() else 0L
+    }
+
     fun convertProformaToFinal(invoiceWithItems: InvoiceWithItems, onCompleted: () -> Unit) {
         viewModelScope.launch {
             val success = invoiceRepo.convertProformaToFinal(invoiceWithItems.invoice.id)
@@ -292,9 +340,6 @@ class InvoiceViewModel(
         }
     }
 
-    /**
-     * ابطال تمامی اسناد و فاکتور
-     */
     fun voidInvoice(invoiceWithItems: InvoiceWithItems, onCompleted: () -> Unit) {
         viewModelScope.launch {
             val success = invoiceRepo.voidInvoice(invoiceWithItems.invoice.id)
@@ -317,9 +362,6 @@ class InvoiceViewModel(
         }
     }
 
-    /**
-     * ارسال مستقیم دستورات چاپ به پرینتر حرارتی بلوتوثی
-     */
     fun printThermalReceiptBluetooth(
         device: BluetoothDevice,
         invoiceWithItems: InvoiceWithItems,
@@ -360,11 +402,8 @@ class InvoiceViewModel(
         }
     }
 
-    /**
-     * ثبت نهایی فاکتور همراه با تسویه پیشرفته (نقد، پوز، چک، نسیه یا ترکیبی) و هزینه‌های مستقیم
-     */
     fun checkoutAdvanced(
-        paymentType: String, // "CASH", "POS", "CREDIT", "CHEQUE", "MIXED"
+        paymentType: String,
         cashAmount: Long = 0L,
         posAmount: Long = 0L,
         chequeAmount: Long = 0L,
@@ -376,12 +415,13 @@ class InvoiceViewModel(
         chequeDueDate: String = "",
         chequeBankName: String = "",
         notes: String = "",
+        overrideInvoiceType: String? = null,
         onCompleted: (Long) -> Unit
     ) {
         viewModelScope.launch {
             val items = _cartItems.value
             if (items.isEmpty()) {
-                _alertMessage.value = "سبد خرید خالی است."
+                _alertMessage.value = "سبد اقلام خالی است."
                 return@launch
             }
 
@@ -393,6 +433,7 @@ class InvoiceViewModel(
             val total = taxable + tax + directExpense
 
             val party = _selectedParty.value
+            val invoiceType = overrideInvoiceType ?: _currentInvoiceType.value
 
             val effectiveCredit = when (paymentType) {
                 "CREDIT" -> total
@@ -400,15 +441,15 @@ class InvoiceViewModel(
                 else -> 0L
             }
 
-            // بررسی سقف اعتبار در صورت وجود بخش نسیه
-            if (effectiveCredit > 0 && !_issueAsProforma.value) {
+            // کنترل سقف اعتبار برای فاکتورهای فروش نسیه
+            if (invoiceType in listOf("SALE", "POS_SALE") && effectiveCredit > 0 && !_issueAsProforma.value) {
                 if (party == null) {
-                    _alertMessage.value = "برای خرید نسیه، مشخص کردن طرف حساب (مشتری) الزامی است."
+                    _alertMessage.value = "برای خرید نسیه، مشخص کردن طرف‌حساب الزامی است."
                     return@launch
                 }
                 if (!party.canAcceptCredit(effectiveCredit)) {
                     val remaining = party.remainingCredit()
-                    _alertMessage.value = "هشدار سقف اعتبار! مانده بدهی مشتری از سقف مجاز فراتر می‌رود. مانده اعتبار مجاز: $remaining تومان"
+                    _alertMessage.value = "هشدار سقف اعتبار! بدهی مشتری از سقف مجاز فراتر می‌رود. مانده اعتبار مجاز: $remaining تومان"
                     return@launch
                 }
             }
@@ -435,13 +476,19 @@ class InvoiceViewModel(
             val nextNumber = invoiceRepo.generateNextInvoiceNumber()
             val today = JalaliDate.now()
 
+            val defaultPartyName = when (invoiceType) {
+                "PURCHASE" -> "تامین‌کننده ناشناس"
+                "RETURN_PURCHASE" -> "تامین‌کننده مرجوعی"
+                else -> "مشتری نقدی"
+            }
+
             val invoice = InvoiceEntity(
                 invoiceNumber = nextNumber,
-                invoiceType = if (paymentType == "CREDIT" || party != null) "SALE" else "POS_SALE",
+                invoiceType = invoiceType,
                 jalaliDate = today.toStandardString(),
                 timestamp = System.currentTimeMillis(),
                 partyId = party?.id,
-                partyName = party?.name ?: "مشتری نقدی",
+                partyName = party?.name ?: defaultPartyName,
                 partyPhone = party?.mobile ?: "",
                 warehouseId = 1L,
                 warehouseName = "انبار مرکزی تهران",
@@ -460,7 +507,7 @@ class InvoiceViewModel(
                 directExpenseAmount = directExpense,
                 directExpenseType = _directExpenseType.value,
                 isPaid = effectiveCredit == 0L,
-                status = if (_issueAsProforma.value) "PROFORMA" else "FINAL",
+                status = if (_issueAsProforma.value && invoiceType == "SALE") "PROFORMA" else "FINAL",
                 notes = notes
             )
 
@@ -476,39 +523,40 @@ class InvoiceViewModel(
                     conversionRate = cartItem.product.conversionRate,
                     quantityInSecondary = cartItem.quantityInSecondary,
                     unitPrice = cartItem.unitPrice,
+                    discount = cartItem.discount,
                     totalPrice = cartItem.totalPrice
                 )
             }
 
             val invoiceId = invoiceRepo.createInvoice(invoice, invoiceItems)
 
-            // اگر چک صیادی ثبت شده بود و پیش‌فاکتور نبود
+            // در صورت ثبت چک در فاکتور
             if (!_issueAsProforma.value && effectiveCheque > 0 && chequeNumber.isNotBlank()) {
                 val dueEpoch = try {
                     JalaliDate.parse(chequeDueDate).toEpochMillis()
                 } catch (e: Exception) {
                     today.addDays(30).toEpochMillis()
                 }
+                val chequeType = if (invoiceType in listOf("PURCHASE", "RETURN_SALE")) "PAYABLE" else "RECEIVABLE"
                 treasuryRepo.insertCheque(
                     ChequeEntity(
                         chequeNumber = chequeNumber,
                         sayadNumber = sayadNumber,
-                        type = "RECEIVABLE",
+                        type = chequeType,
                         partyId = party?.id,
-                        partyName = party?.name ?: "مشتری فاکتور $nextNumber",
-                        bankName = chequeBankName.ifBlank { "بانک مشتری" },
+                        partyName = party?.name ?: "طرف‌حساب فاکتور $nextNumber",
+                        bankName = chequeBankName.ifBlank { "بانک ملی" },
                         branch = "مرکزی",
                         amount = effectiveCheque,
                         issueDateJalali = today.toStandardString(),
                         dueDateJalali = chequeDueDate.ifBlank { today.addDays(30).toStandardString() },
                         dueDateEpochMillis = dueEpoch,
                         status = "NORMAL",
-                        notes = "دریافت چک صیادی بابت فاکتور $nextNumber"
+                        notes = "ثبت چک بابت فاکتور $nextNumber ($invoiceType)"
                     )
                 )
             }
 
-            // آماده‌سازی پیش‌نمایش چاپ حرارتی
             val printable = EscPosPrinterHelper.PrintableInvoice(
                 invoiceNumber = invoice.invoiceNumber,
                 invoiceDate = today.format(includeTime = true),
@@ -568,37 +616,43 @@ class InvoiceViewModel(
     fun exportPdf(context: Context, invoiceWithItems: InvoiceWithItems, storeProfile: StoreProfile) {
         val file = ExportHelper.exportInvoicePdf(context, invoiceWithItems, storeProfile)
         if (file != null) {
-            ExportHelper.shareFile(context, file, "application/pdf", "اشتراک‌گذاری فاکتور PDF")
+            ExportHelper.shareFile(context, file, "application/pdf", "فاکتور ${invoiceWithItems.invoice.invoiceNumber} PDF")
         }
     }
 
     fun exportCsv(context: Context, invoiceWithItems: InvoiceWithItems, storeProfile: StoreProfile) {
         val file = ExportHelper.exportInvoiceCsv(context, invoiceWithItems, storeProfile)
         if (file != null) {
-            ExportHelper.shareFile(context, file, "text/csv", "خروجی اکسل فاکتور")
+            ExportHelper.shareFile(context, file, "text/csv", "خروجی اکسل فاکتور ${invoiceWithItems.invoice.invoiceNumber}")
         }
     }
 
     fun shareText(context: Context, invoiceWithItems: InvoiceWithItems, storeProfile: StoreProfile) {
-        val inv = invoiceWithItems.invoice
+        val text = buildInvoiceShareText(invoiceWithItems, storeProfile)
+        ExportHelper.shareText(context, text, "ارسال فاکتور ${invoiceWithItems.invoice.invoiceNumber}")
+    }
+
+    private fun buildInvoiceShareText(inv: InvoiceWithItems, store: StoreProfile): String {
+        val i = inv.invoice
         val sb = StringBuilder()
-        sb.append("🧾 صورتحساب ${storeProfile.name}\n")
-        sb.append("شماره فاکتور: ${inv.invoiceNumber}\n")
-        sb.append("تاریخ: ${inv.jalaliDate}\n")
-        sb.append("مشتری: ${inv.partyName}\n")
-        sb.append("-----------------------------\n")
-        invoiceWithItems.items.forEachIndexed { i, itm ->
-            sb.append("${i + 1}. ${itm.productName} | ${itm.quantity} ${itm.unitName} × ${itm.unitPrice} = ${itm.totalPrice} تومان\n")
+        sb.appendLine("🧾 ${store.name}")
+        sb.appendLine("فاکتور شماره: ${i.invoiceNumber}")
+        sb.appendLine("نوع: ${i.invoiceType}")
+        sb.appendLine("تاریخ: ${i.jalaliDate}")
+        sb.appendLine("طرف‌حساب: ${i.partyName}")
+        sb.appendLine("-------------------------")
+        inv.items.forEachIndexed { idx, it ->
+            sb.appendLine("${idx + 1}. ${it.productName} - ${it.quantity} ${it.unitName} × ${NumberFormatUtils.formatPrice(it.unitPrice)} = ${NumberFormatUtils.formatPrice(it.totalPrice)}")
         }
-        sb.append("-----------------------------\n")
-        sb.append("جمع اقلام: ${inv.subtotalAmount} تومان\n")
-        if (inv.discountAmount > 0) sb.append("تخفیف: ${inv.discountAmount} تومان\n")
-        if (inv.taxAmount > 0) sb.append("مالیات ارزش افزوده: ${inv.taxAmount} تومان\n")
-        if (inv.directExpenseAmount > 0) sb.append("هزینه مستقیم (${inv.directExpenseType}): ${inv.directExpenseAmount} تومان\n")
-        sb.append("مبلغ نهایی: ${inv.totalAmount} تومان\n")
-        sb.append("نوع تسویه: ${inv.paymentType}\n")
-        sb.append("شماره کارت جهت واریز: ${storeProfile.defaultBankCard}\n")
-        sb.append("با تشکر از حسن انتخاب شما.")
-        ExportHelper.shareText(context, sb.toString(), "ارسال متنی فاکتور")
+        sb.appendLine("-------------------------")
+        sb.appendLine("جمع اقلام: ${NumberFormatUtils.formatPrice(i.subtotalAmount)}")
+        if (i.discountAmount > 0) sb.appendLine("تخفیف: ${NumberFormatUtils.formatPrice(i.discountAmount)}")
+        if (i.taxAmount > 0) sb.appendLine("مالیات: ${NumberFormatUtils.formatPrice(i.taxAmount)}")
+        if (i.directExpenseAmount > 0) sb.appendLine("${i.directExpenseType}: ${NumberFormatUtils.formatPrice(i.directExpenseAmount)}")
+        sb.appendLine("مبلغ نهایی: ${NumberFormatUtils.formatPrice(i.totalAmount)}")
+        sb.appendLine("تسویه: ${i.paymentType}")
+        if (store.phone.isNotBlank()) sb.appendLine("تلفن: ${store.phone}")
+        return sb.toString()
     }
 }
+
