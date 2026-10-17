@@ -30,6 +30,7 @@ enum class UserRole(
     val canAccessTreasuryBalances: Boolean get() = this == MANAGER
     val canAccessSettings: Boolean get() = this == MANAGER
     val canIssueInvoices: Boolean get() = true
+    val canManageUsers: Boolean get() = this == MANAGER
 }
 
 data class StoreProfile(
