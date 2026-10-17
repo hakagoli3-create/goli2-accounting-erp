@@ -298,7 +298,15 @@ class InvoiceRepository(
      * معکوس کردن کلیه اثرات فاکتور (انبار، طرف‌حساب، صندوق/بانک و صدور سند معکوس)
      */
     private suspend fun rollbackInvoiceEffects(invoice: InvoiceEntity, items: List<InvoiceItemEntity>) {
-        // 1. معکوس کردن کاردکس انبار
+        // 1. معکوس کردن کاردکس انبار با اعتبارسنجی انبار و کالا جهت جلوگیری از خطای Foreign Key
+        val targetWarehouseId = try {
+            val wh = inventoryDao.getWarehouseById(invoice.warehouseId)
+                ?: inventoryDao.getDefaultWarehouse()
+            wh?.id ?: 1L
+        } catch (e: Exception) {
+            1L
+        }
+
         for (item in items) {
             val reverseStock = when (invoice.invoiceType) {
                 "SALE", "POS_SALE" -> item.quantityInSecondary // برگشت به انبار
@@ -307,66 +315,85 @@ class InvoiceRepository(
                 "RETURN_PURCHASE" -> item.quantityInSecondary // برگشت به انبار
                 else -> item.quantityInSecondary
             }
-            inventoryDao.insertMovement(
-                InventoryMovementEntity(
-                    productId = item.productId,
-                    warehouseId = invoice.warehouseId,
-                    jalaliDate = JalaliDate.now().toStandardString(),
-                    documentType = "ROLLBACK_${invoice.invoiceType}",
-                    referenceNumber = "REV-${invoice.invoiceNumber}",
-                    quantitySecondary = reverseStock,
-                    unitPrice = item.unitPrice,
-                    description = "برگشت اثر فاکتور ${invoice.invoiceNumber} - ${item.productName}"
-                )
-            )
-            inventoryDao.adjustStock(item.productId, reverseStock)
+            try {
+                val productExists = inventoryDao.getProductById(item.productId) != null
+                if (productExists) {
+                    inventoryDao.insertMovement(
+                        InventoryMovementEntity(
+                            productId = item.productId,
+                            warehouseId = targetWarehouseId,
+                            jalaliDate = JalaliDate.now().toStandardString(),
+                            documentType = "ROLLBACK_${invoice.invoiceType}",
+                            referenceNumber = "REV-${invoice.invoiceNumber}",
+                            quantitySecondary = reverseStock,
+                            unitPrice = item.unitPrice,
+                            description = "برگشت اثر فاکتور ${invoice.invoiceNumber} - ${item.productName}"
+                        )
+                    )
+                    inventoryDao.adjustStock(item.productId, reverseStock)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("InvoiceRepository", "Error reversing stock for product ${item.productId}", e)
+            }
         }
 
         // 2. معکوس کردن مانده حساب طرف‌حساب
-        val creditAmount = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
-        if (invoice.partyId != null && creditAmount > 0) {
-            val factor = when (invoice.invoiceType) {
-                "SALE", "POS_SALE", "PURCHASE" -> -1L
-                "RETURN_SALE", "RETURN_PURCHASE" -> 1L
-                else -> -1L
+        try {
+            val creditAmount = if (invoice.paymentType == "CREDIT") invoice.totalAmount else invoice.creditAmount
+            if (invoice.partyId != null && creditAmount > 0) {
+                val factor = when (invoice.invoiceType) {
+                    "SALE", "POS_SALE", "PURCHASE" -> -1L
+                    "RETURN_SALE", "RETURN_PURCHASE" -> 1L
+                    else -> -1L
+                }
+                partyDao.updatePartyBalance(invoice.partyId, factor * creditAmount)
             }
-            partyDao.updatePartyBalance(invoice.partyId, factor * creditAmount)
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error reversing party balance", e)
         }
 
         // 3. معکوس کردن خزانه‌داری
-        val treasuryFactor = when (invoice.invoiceType) {
-            "SALE", "POS_SALE", "RETURN_PURCHASE" -> -1L
-            "PURCHASE", "RETURN_SALE" -> 1L
-            else -> -1L
-        }
-        if (invoice.cashAmount > 0) {
-            treasuryDao.updateCashBalance(invoice.cashDeskId, treasuryFactor * invoice.cashAmount)
-        }
-        if (invoice.posAmount > 0) {
-            treasuryDao.updateBankBalance(invoice.bankAccountId, treasuryFactor * invoice.posAmount)
+        try {
+            val treasuryFactor = when (invoice.invoiceType) {
+                "SALE", "POS_SALE", "RETURN_PURCHASE" -> -1L
+                "PURCHASE", "RETURN_SALE" -> 1L
+                else -> -1L
+            }
+            if (invoice.cashAmount > 0) {
+                treasuryDao.updateCashBalance(invoice.cashDeskId, treasuryFactor * invoice.cashAmount)
+            }
+            if (invoice.posAmount > 0) {
+                treasuryDao.updateBankBalance(invoice.bankAccountId, treasuryFactor * invoice.posAmount)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error reversing treasury balance", e)
         }
 
         // 4. ثبت سند معکوس در حسابداری
-        val nextVoucher = accountingDao.getMaxVoucherNumber() + 1
-        accountingDao.createVoucherWithItems(
-            JournalEntryEntity(
-                voucherNumber = nextVoucher,
-                jalaliDate = JalaliDate.now().toStandardString(),
-                description = "سند ابطال/برگشت فاکتور شماره ${invoice.invoiceNumber}",
-                isBalanced = true,
-                status = "FINAL"
-            ),
-            listOf(
-                JournalItemEntity(
-                    voucherId = 0L, generalCode = 601, subsidiaryCode = 60101, partyId = invoice.partyId,
-                    description = "ابطال اثر مالی فاکتور ${invoice.invoiceNumber}", debit = invoice.totalAmount, credit = 0L
+        try {
+            val nextVoucher = accountingDao.getMaxVoucherNumber() + 1
+            accountingDao.createVoucherWithItems(
+                JournalEntryEntity(
+                    voucherNumber = nextVoucher,
+                    jalaliDate = JalaliDate.now().toStandardString(),
+                    description = "سند ابطال/برگشت فاکتور شماره ${invoice.invoiceNumber}",
+                    isBalanced = true,
+                    status = "FINAL"
                 ),
-                JournalItemEntity(
-                    voucherId = 0L, generalCode = 101, subsidiaryCode = if (invoice.posAmount > 0) 10102 else 10101, partyId = null,
-                    description = "برگشت تسویه فاکتور باطل شده ${invoice.invoiceNumber}", debit = 0L, credit = invoice.totalAmount
+                listOf(
+                    JournalItemEntity(
+                        voucherId = 0L, generalCode = 601, subsidiaryCode = 60101, partyId = invoice.partyId,
+                        description = "ابطال اثر مالی فاکتور ${invoice.invoiceNumber}", debit = invoice.totalAmount, credit = 0L
+                    ),
+                    JournalItemEntity(
+                        voucherId = 0L, generalCode = 101, subsidiaryCode = if (invoice.posAmount > 0) 10102 else 10101, partyId = null,
+                        description = "برگشت تسویه فاکتور باطل شده ${invoice.invoiceNumber}", debit = 0L, credit = invoice.totalAmount
+                    )
                 )
             )
-        )
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error creating rollback accounting voucher", e)
+        }
     }
 
     /**
@@ -377,67 +404,106 @@ class InvoiceRepository(
         updatedInvoice: InvoiceEntity,
         newItems: List<InvoiceItemEntity>
     ): Boolean {
-        val oldInvoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
-        val oldInvoice = oldInvoiceWithItems.invoice
+        return try {
+            val oldInvoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+            val oldInvoice = oldInvoiceWithItems.invoice
 
-        // اگر فاکتور قبلاً قطعی بود، اثرات گذشته را برگشت می‌زنیم
-        if (oldInvoice.status == "FINAL") {
-            rollbackInvoiceEffects(oldInvoice, oldInvoiceWithItems.items)
+            // اگر فاکتور قبلاً قطعی بود، اثرات گذشته را برگشت می‌زنیم
+            if (oldInvoice.status == "FINAL") {
+                rollbackInvoiceEffects(oldInvoice, oldInvoiceWithItems.items)
+            }
+
+            // ثبت اطلاعات جدید فاکتور
+            val readyInvoice = updatedInvoice.copy(id = invoiceId)
+            invoiceDao.updateInvoice(readyInvoice)
+            invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
+            val attachedItems = newItems.map { it.copy(invoiceId = invoiceId) }
+            invoiceDao.insertInvoiceItems(attachedItems)
+
+            // اعمال مجدد اثرات فاکتور در صورتی که قطعی باشد
+            if (readyInvoice.status == "FINAL") {
+                applyInvoiceEffects(readyInvoice, attachedItems)
+            }
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error updating existing invoice", e)
+            false
         }
-
-        // ثبت اطلاعات جدید فاکتور
-        val readyInvoice = updatedInvoice.copy(id = invoiceId)
-        invoiceDao.updateInvoice(readyInvoice)
-        invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
-        val attachedItems = newItems.map { it.copy(invoiceId = invoiceId) }
-        invoiceDao.insertInvoiceItems(attachedItems)
-
-        // اعمال مجدد اثرات فاکتور در صورتی که قطعی باشد
-        if (readyInvoice.status == "FINAL") {
-            applyInvoiceEffects(readyInvoice, attachedItems)
-        }
-        return true
     }
 
     /**
      * تبدیل سریع پیش‌فاکتور به فاکتور فروش قطعی
      */
     suspend fun convertProformaToFinal(invoiceId: Long): Boolean {
-        val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
-        val invoice = invoiceWithItems.invoice
-        if (invoice.status != "PROFORMA") return false
+        return try {
+            val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+            val invoice = invoiceWithItems.invoice
+            if (invoice.status != "PROFORMA") return false
 
-        val updatedInvoice = invoice.copy(status = "FINAL")
-        invoiceDao.updateInvoice(updatedInvoice)
-        applyInvoiceEffects(updatedInvoice, invoiceWithItems.items)
-        return true
+            val updatedInvoice = invoice.copy(status = "FINAL")
+            invoiceDao.updateInvoice(updatedInvoice)
+            applyInvoiceEffects(updatedInvoice, invoiceWithItems.items)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error converting proforma to final", e)
+            false
+        }
     }
 
     /**
      * ابطال تمامی اثرات فاکتور و علامت‌گذاری به عنوان باطل شده (VOID)
      */
     suspend fun voidInvoice(invoiceId: Long): Boolean {
-        val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
-        val invoice = invoiceWithItems.invoice
-        if (invoice.status == "VOID") return false
+        return try {
+            val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+            val invoice = invoiceWithItems.invoice
+            if (invoice.status == "VOID") return false
 
-        if (invoice.status == "FINAL") {
-            rollbackInvoiceEffects(invoice, invoiceWithItems.items)
+            if (invoice.status == "FINAL") {
+                rollbackInvoiceEffects(invoice, invoiceWithItems.items)
+            }
+
+            invoiceDao.setInvoiceStatus(invoiceId, "VOID")
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Error voiding invoice", e)
+            false
         }
-
-        invoiceDao.setInvoiceStatus(invoiceId, "VOID")
-        return true
     }
 
     suspend fun deleteInvoice(invoiceId: Long): Boolean {
-        voidInvoice(invoiceId)
-        val invoice = invoiceDao.getInvoiceById(invoiceId)
-        if (invoice != null) {
-            invoiceDao.deleteInvoice(invoice)
-            invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
-            return true
+        return try {
+            val invoiceWithItems = invoiceDao.getInvoiceWithItemsById(invoiceId) ?: return false
+            val invoice = invoiceWithItems.invoice
+
+            // ۱. اگر فاکتور قطعی است، ابتدا اثرات انبار و مالی آن معکوس شوند
+            if (invoice.status == "FINAL") {
+                try {
+                    rollbackInvoiceEffects(invoice, invoiceWithItems.items)
+                } catch (e: Exception) {
+                    android.util.Log.e("InvoiceRepository", "Warning: rollback before delete failed", e)
+                }
+            }
+
+            // ۲. حذف ردیف‌های اقلام فاکتور ابتدا تا نقض کلید خارجی در دیتابیس رخ ندهد
+            try {
+                invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
+            } catch (e: Exception) {
+                android.util.Log.e("InvoiceRepository", "Error deleting invoice items", e)
+            }
+
+            // ۳. حذف خود سند فاکتور از دیتابیس
+            val rowsDeleted = try {
+                invoiceDao.deleteInvoiceById(invoiceId)
+            } catch (e: Exception) {
+                invoiceDao.deleteInvoice(invoice)
+                1
+            }
+            rowsDeleted > 0
+        } catch (e: Exception) {
+            android.util.Log.e("InvoiceRepository", "Fatal error in deleteInvoice", e)
+            false
         }
-        return false
     }
 
     suspend fun generateNextInvoiceNumber(): String {

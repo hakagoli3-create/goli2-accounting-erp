@@ -177,7 +177,8 @@ fun TreasuryScreen(
             when (selectedTab) {
                 0 -> ChequesContent(
                     cheques = cheques,
-                    onUpdateStatus = { cheque, status -> viewModel.updateChequeStatus(cheque, status) }
+                    onUpdateStatus = { cheque, status -> viewModel.updateChequeStatus(cheque, status) },
+                    onDeleteCheque = { cheque -> viewModel.deleteCheque(cheque) }
                 )
                 1 -> CashDesksContent(
                     cashDesks = cashDesks,

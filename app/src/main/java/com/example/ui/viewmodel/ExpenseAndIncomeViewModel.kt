@@ -140,9 +140,13 @@ class ExpenseAndIncomeViewModel(
 
     fun deleteExpense(expense: ExpenseEntity, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteExpense(expense)
-            _alertMessage.value = "سند هزینه حذف و موجودی حساب برگشت داده شد."
-            onSuccess()
+            try {
+                repository.deleteExpense(expense)
+                _alertMessage.value = "سند هزینه حذف و موجودی حساب برگشت داده شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان حذف این هزینه به دلیل داشتن تراکنش‌های وابسته وجود ندارد."
+            }
         }
     }
 
@@ -172,9 +176,13 @@ class ExpenseAndIncomeViewModel(
 
     fun deleteExpenseCategory(category: ExpenseCategoryEntity, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteExpenseCategory(category)
-            _alertMessage.value = "سرفصل هزینه حذف شد."
-            onSuccess()
+            try {
+                repository.deleteExpenseCategory(category)
+                _alertMessage.value = "سرفصل هزینه حذف شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان حذف این سرفصل به دلیل داشتن هزینه‌های ثبت‌شده ذیل آن وجود ندارد."
+            }
         }
     }
 
@@ -255,9 +263,13 @@ class ExpenseAndIncomeViewModel(
 
     fun deleteIncome(income: IncomeEntity, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteIncome(income)
-            _alertMessage.value = "سند درآمد حذف و اثر آن بر حساب معکوس گردید."
-            onSuccess()
+            try {
+                repository.deleteIncome(income)
+                _alertMessage.value = "سند درآمد حذف و اثر آن بر حساب معکوس گردید."
+                onSuccess()
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان حذف این سند درآمد به دلیل داشتن تراکنش‌های وابسته وجود ندارد."
+            }
         }
     }
 
@@ -287,9 +299,13 @@ class ExpenseAndIncomeViewModel(
 
     fun deleteIncomeCategory(category: IncomeCategoryEntity, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteIncomeCategory(category)
-            _alertMessage.value = "دسته‌بندی درآمد حذف شد."
-            onSuccess()
+            try {
+                repository.deleteIncomeCategory(category)
+                _alertMessage.value = "دسته‌بندی درآمد حذف شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان حذف این دسته‌بندی به دلیل داشتن درآمدهای ثبت‌شده ذیل آن وجود ندارد."
+            }
         }
     }
 

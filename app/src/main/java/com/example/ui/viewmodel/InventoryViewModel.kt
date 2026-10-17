@@ -147,15 +147,23 @@ class InventoryViewModel(
 
     fun updateProduct(product: ProductEntity, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.updateProduct(product)
-            onSuccess()
+            try {
+                repository.updateProduct(product)
+                onSuccess()
+            } catch (e: Exception) {
+                // Ignore or log
+            }
         }
     }
 
     fun deleteProduct(product: ProductEntity, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val res = repository.deleteProductSafely(product)
-            onResult(res.first, res.second)
+            try {
+                val res = repository.deleteProductSafely(product)
+                onResult(res.first, res.second)
+            } catch (e: Exception) {
+                onResult(false, "امکان حذف این کالا به دلیل داشتن وابستگی در سایر اسناد وجود ندارد.")
+            }
         }
     }
 

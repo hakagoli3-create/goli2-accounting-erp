@@ -238,21 +238,35 @@ class InvoiceViewModel(
 
     fun voidInvoice(invoiceId: Long, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val res = invoiceRepo.voidInvoice(invoiceId)
-            if (res) {
-                _alertMessage.value = "فاکتور با موفقیت باطل شد و اثرات انبار و مالی آن معکوس گردید."
+            try {
+                val res = invoiceRepo.voidInvoice(invoiceId)
+                if (res) {
+                    _alertMessage.value = "فاکتور با موفقیت باطل شد و اثرات انبار و مالی آن معکوس گردید."
+                } else {
+                    _alertMessage.value = "امکان ابطال این فاکتور وجود ندارد (ممکن است قبلاً باطل شده باشد)."
+                }
+                onDone(res)
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان ابطال این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید."
+                onDone(false)
             }
-            onDone(res)
         }
     }
 
     fun deleteInvoice(invoiceId: Long, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val res = invoiceRepo.deleteInvoice(invoiceId)
-            if (res) {
-                _alertMessage.value = "فاکتور با موفقیت حذف گردید."
+            try {
+                val res = invoiceRepo.deleteInvoice(invoiceId)
+                if (res) {
+                    _alertMessage.value = "فاکتور با موفقیت حذف گردید."
+                } else {
+                    _alertMessage.value = "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید."
+                }
+                onDone(res)
+            } catch (e: Exception) {
+                _alertMessage.value = "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید."
+                onDone(false)
             }
-            onDone(res)
         }
     }
 

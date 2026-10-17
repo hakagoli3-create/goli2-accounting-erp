@@ -124,38 +124,78 @@ class TreasuryViewModel(
 
     fun updateChequeStatus(cheque: ChequeEntity, newStatus: String) {
         viewModelScope.launch {
-            repository.updateCheque(cheque.copy(status = newStatus))
-            _statusMessage.value = "وضعیت چک به روزرسانی شد."
+            try {
+                repository.updateCheque(cheque.copy(status = newStatus))
+                _statusMessage.value = "وضعیت چک به روزرسانی شد."
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در تغییر وضعیت چک: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun updateCheque(cheque: ChequeEntity, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.updateCheque(cheque)
+                _statusMessage.value = "اطلاعات چک با موفقیت ویرایش شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ویرایش چک: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun deleteCheque(cheque: ChequeEntity, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCheque(cheque)
+                _statusMessage.value = "چک با موفقیت حذف گردید."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "امکان حذف این چک به دلیل داشتن تراکنش‌های وابسته وجود ندارد."
+            }
         }
     }
 
     fun addCashDesk(name: String, code: String, keeper: String, initialBalance: Long, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.insertCashDesk(
-                CashDeskEntity(
-                    code = code,
-                    name = name,
-                    keeperName = keeper,
-                    currentBalance = initialBalance
+            try {
+                repository.insertCashDesk(
+                    CashDeskEntity(
+                        code = code,
+                        name = name,
+                        keeperName = keeper,
+                        currentBalance = initialBalance
+                    )
                 )
-            )
-            _statusMessage.value = "صندوق جدید $name اضافه شد."
-            onSuccess()
+                _statusMessage.value = "صندوق جدید $name اضافه شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در افزودن صندوق: ${e.localizedMessage}"
+            }
         }
     }
 
     fun updateCashDesk(cashDesk: CashDeskEntity, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.updateCashDesk(cashDesk)
-            _statusMessage.value = "اطلاعات صندوق به روزرسانی شد."
-            onSuccess()
+            try {
+                repository.updateCashDesk(cashDesk)
+                _statusMessage.value = "اطلاعات صندوق به روزرسانی شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ویرایش صندوق: ${e.localizedMessage}"
+            }
         }
     }
 
     fun deleteCashDesk(cashDesk: CashDeskEntity) {
         viewModelScope.launch {
-            repository.deleteCashDesk(cashDesk)
-            _statusMessage.value = "صندوق ${cashDesk.name} حذف شد."
+            try {
+                repository.deleteCashDesk(cashDesk)
+                _statusMessage.value = "صندوق ${cashDesk.name} حذف شد."
+            } catch (e: Exception) {
+                _statusMessage.value = "امکان حذف این صندوق به دلیل داشتن تراکنش‌های مالی وجود ندارد."
+            }
         }
     }
 
@@ -171,35 +211,47 @@ class TreasuryViewModel(
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
-            repository.insertBankAccount(
-                BankAccountEntity(
-                    bankName = bankName,
-                    accountNumber = accountNumber,
-                    cardNumber = cardNumber,
-                    shebaNumber = sheba,
-                    branch = branch,
-                    currentBalance = initialBalance,
-                    hasPos = hasPos,
-                    posTerminalId = posTerminalId
+            try {
+                repository.insertBankAccount(
+                    BankAccountEntity(
+                        bankName = bankName,
+                        accountNumber = accountNumber,
+                        cardNumber = cardNumber,
+                        shebaNumber = sheba,
+                        branch = branch,
+                        currentBalance = initialBalance,
+                        hasPos = hasPos,
+                        posTerminalId = posTerminalId
+                    )
                 )
-            )
-            _statusMessage.value = "حساب بانکی $bankName اضافه شد."
-            onSuccess()
+                _statusMessage.value = "حساب بانکی $bankName اضافه شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ثبت حساب بانکی: ${e.localizedMessage}"
+            }
         }
     }
 
     fun updateBankAccount(account: BankAccountEntity, onSuccess: () -> Unit) {
         viewModelScope.launch {
-            repository.updateBankAccount(account)
-            _statusMessage.value = "اطلاعات حساب بانکی به روزرسانی شد."
-            onSuccess()
+            try {
+                repository.updateBankAccount(account)
+                _statusMessage.value = "اطلاعات حساب بانکی به روزرسانی شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ویرایش حساب بانکی: ${e.localizedMessage}"
+            }
         }
     }
 
     fun deleteBankAccount(account: BankAccountEntity) {
         viewModelScope.launch {
-            repository.deleteBankAccount(account)
-            _statusMessage.value = "حساب بانکی ${account.bankName} حذف شد."
+            try {
+                repository.deleteBankAccount(account)
+                _statusMessage.value = "حساب بانکی ${account.bankName} حذف شد."
+            } catch (e: Exception) {
+                _statusMessage.value = "امکان حذف این حساب بانکی به دلیل داشتن تراکنش‌های مالی وجود ندارد."
+            }
         }
     }
 

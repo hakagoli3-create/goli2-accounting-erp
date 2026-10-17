@@ -176,10 +176,18 @@ fun InvoiceScreen(
                         selectedTab = 1
                     },
                     onVoidInvoice = { inv ->
-                        viewModel.voidInvoice(inv.invoice.id) {}
+                        try {
+                            viewModel.voidInvoice(inv.invoice.id) {}
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "امکان ابطال این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید.", Toast.LENGTH_LONG).show()
+                        }
                     },
                     onDeleteInvoice = { inv ->
-                        viewModel.deleteInvoice(inv.invoice.id) {}
+                        try {
+                            viewModel.deleteInvoice(inv.invoice.id) {}
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید.", Toast.LENGTH_LONG).show()
+                        }
                     },
                     onExportPdf = { viewModel.exportPdf(context, it, storeProfile) },
                     onExportCsv = { viewModel.exportCsv(context, it, storeProfile) },
@@ -672,7 +680,11 @@ private fun InvoiceListContent(
             confirmButton = {
                 Button(
                     onClick = {
-                        onDeleteInvoice(inv)
+                        try {
+                            onDeleteInvoice(inv)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید.", Toast.LENGTH_LONG).show()
+                        }
                         deletingInvoice = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)

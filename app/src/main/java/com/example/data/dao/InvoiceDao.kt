@@ -54,6 +54,9 @@ interface InvoiceDao {
     @androidx.room.Delete
     suspend fun deleteInvoice(invoice: InvoiceEntity)
 
+    @Query("DELETE FROM invoices WHERE id = :invoiceId")
+    suspend fun deleteInvoiceById(invoiceId: Long): Int
+
     @Query("DELETE FROM invoice_items WHERE invoiceId = :invoiceId")
     suspend fun deleteInvoiceItemsForInvoice(invoiceId: Long)
 

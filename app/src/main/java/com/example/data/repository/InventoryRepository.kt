@@ -51,13 +51,17 @@ class InventoryRepository(private val dao: InventoryDao) {
     }
 
     suspend fun deleteProductSafely(product: ProductEntity): Pair<Boolean, String> {
-        val check = canDeleteProduct(product.id)
-        if (!check.first) {
-            return check
+        return try {
+            val check = canDeleteProduct(product.id)
+            if (!check.first) {
+                return check
+            }
+            dao.deleteMovementsForProduct(product.id)
+            dao.deleteProduct(product)
+            Pair(true, "کالای «${product.name}» با موفقیت حذف گردید.")
+        } catch (e: Exception) {
+            Pair(false, "امکان حذف این کالا به دلیل داشتن وابستگی در سایر اسناد وجود ندارد: ${e.localizedMessage}")
         }
-        dao.deleteMovementsForProduct(product.id)
-        dao.deleteProduct(product)
-        return Pair(true, "کالای «${product.name}» با موفقیت حذف گردید.")
     }
 
     suspend fun insertWarehouse(warehouse: WarehouseEntity): Long =
