@@ -523,35 +523,18 @@ object DatabaseSeeder {
 
     suspend fun ensureDefaultUsers(db: AppDatabase) {
         try {
-            val count = db.userDao().getUserCount()
-            if (count == 0) {
-                val defaultUsers = listOf(
+            val adminUser = db.userDao().getUserByUsername("admin")
+            if (adminUser == null) {
+                db.userDao().insertUser(
                     com.example.data.model.UserEntity(
-                        id = 1,
                         username = "admin",
                         passwordHash = "1234",
                         fullName = "مدیر کل سیستم",
                         role = "ADMIN",
-                        mobile = "09121112233"
-                    ),
-                    com.example.data.model.UserEntity(
-                        id = 2,
-                        username = "seller",
-                        passwordHash = "1234",
-                        fullName = "صندوق‌دار / فروشنده",
-                        role = "POS_USER",
-                        mobile = "09122223344"
-                    ),
-                    com.example.data.model.UserEntity(
-                        id = 3,
-                        username = "visitor",
-                        passwordHash = "1234",
-                        fullName = "ویزیتور و بازاریاب",
-                        role = "VISITOR",
-                        mobile = "09123334455"
+                        mobile = "09121112233",
+                        isActive = true
                     )
                 )
-                db.userDao().insertUsers(defaultUsers)
             }
         } catch (_: Exception) {
             // Ignore if already existing

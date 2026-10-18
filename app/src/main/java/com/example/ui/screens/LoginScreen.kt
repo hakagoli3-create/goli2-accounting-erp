@@ -20,20 +20,19 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,24 +42,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.database.AppDatabase
 import com.example.data.model.AppSecurityAndSettingsManager
-import com.example.data.model.UserRole
-import com.example.ui.theme.AccountingDebitGreen
 import com.example.ui.theme.PersianGold
 import kotlinx.coroutines.launch
 
@@ -74,13 +72,17 @@ fun LoginScreen(
     val scope = rememberCoroutineScope()
     val storeProfile by securityManager.storeProfile.collectAsStateWithLifecycle()
 
-    var username by remember { mutableStateOf("admin") }
-    var password by remember { mutableStateOf("1234") }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun doLogin() {
-        if (username.isBlank() || password.isBlank()) {
+        val trimmedUser = username.trim()
+        val trimmedPass = password.trim()
+
+        if (trimmedUser.isBlank() || trimmedPass.isBlank()) {
             errorMessage = "لطفاً نام کاربری و رمز عبور را وارد کنید."
             return
         }
@@ -88,17 +90,23 @@ fun LoginScreen(
         isLoading = true
         errorMessage = null
         scope.launch {
-            val success = if (db != null) {
-                securityManager.loginWithDb(username, password, db)
+            val (success, errorMsg) = if (db != null) {
+                securityManager.loginWithDb(trimmedUser, trimmedPass, db)
             } else {
-                securityManager.login(username, password)
+                val ok = securityManager.login(trimmedUser, trimmedPass)
+                Pair(ok, if (!ok) "نام کاربری یا رمز عبور اشتباه است." else null)
             }
             isLoading = false
             if (success) {
                 Toast.makeText(context, "با موفقیت وارد شدید.", Toast.LENGTH_SHORT).show()
+                // Clear state fields on successful authentication
+                username = ""
+                password = ""
+                errorMessage = null
+                isPasswordVisible = false
                 onLoginSuccess()
             } else {
-                errorMessage = "نام کاربری یا رمز عبور اشتباه است.\n(کاربر پیش‌فرض مدیر: admin / 1234)"
+                errorMessage = errorMsg ?: "نام کاربری یا رمز عبور اشتباه است."
             }
         }
     }
@@ -123,7 +131,7 @@ fun LoginScreen(
                 // Brand Header
                 Box(
                     modifier = Modifier
-                        .size(84.dp)
+                        .size(80.dp)
                         .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
@@ -131,7 +139,7 @@ fun LoginScreen(
                         imageVector = Icons.Default.Storefront,
                         contentDescription = null,
                         tint = PersianGold,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     )
                 }
 
@@ -172,56 +180,16 @@ fun LoginScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "ورود به حساب کاربری (Authentication)",
+                                text = "ورود اختصاصی به حساب کاربری",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                         }
 
-                        // Quick Role Switch Chips for Ease of Access
                         Text(
-                            text = "انتخاب سریع نقش کاربری (پیش‌فرض):",
+                            text = "جهت ورود به سیستم، نام کاربری و رمز عبور اختصاصی خود را وارد نمایید:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            FilterChip(
-                                selected = username.lowercase() == "admin",
-                                onClick = {
-                                    username = "admin"
-                                    password = "1234"
-                                    errorMessage = null
-                                },
-                                label = { Text("مدیر کل", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                                leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = username.lowercase() == "seller",
-                                onClick = {
-                                    username = "seller"
-                                    password = "1234"
-                                    errorMessage = null
-                                },
-                                label = { Text("صندوق‌دار", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                                leadingIcon = { Icon(Icons.Default.PointOfSale, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = username.lowercase() == "visitor",
-                                onClick = {
-                                    username = "visitor"
-                                    password = "1234"
-                                    errorMessage = null
-                                },
-                                label = { Text("ویزیتور", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
 
                         OutlinedTextField(
                             value = username,
@@ -247,7 +215,19 @@ fun LoginScreen(
                             },
                             label = { Text("رمز عبور (Password)") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                            visualTransformation = PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { isPasswordVisible = !isPasswordVisible },
+                                    modifier = Modifier.testTag("toggle_password_visibility")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (isPasswordVisible) "مخفی کردن رمز عبور" else "نمایش رمز عبور",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
                                 imeAction = ImeAction.Done
@@ -293,7 +273,7 @@ fun LoginScreen(
                             } else {
                                 Icon(imageVector = Icons.Default.Login, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("ورود به سامانه حسابداری", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("ورود به سامانه", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
                         }
                     }
@@ -301,7 +281,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // RBAC Guide Box
+                // Information Box
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -312,18 +292,18 @@ fun LoginScreen(
                             Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = PersianGold, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "راهنمای سطوح دسترسی (RBAC):",
+                                text = "راهنمای ورود و سطوح دسترسی:",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "۱. مدیر کل (Admin): دسترسی کاملاً آزاد به تمام بخش‌ها، تنظیمات و CRUD کامل.\n" +
-                                    "۲. فروشنده / صندوق‌دار (POS User): محدود به صدور فاکتور، مشاهده کالا و صندوق.\n" +
-                                    "۳. ویزیتور (Visitor): محدود به کاتالوگ و ثبت پیش‌فاکتور.",
+                            text = "• برای اولین ورود، از حساب مدیر کل پیش‌فرض (admin / 1234) استفاده کنید.\n" +
+                                    "• پس از ورود، مدیر می‌تواند در بخش تنظیمات رمز خود را تغییر داده و برای فروشندگان و ویزیتورها حساب اختصاصی ایجاد کند.\n" +
+                                    "• هر کاربر صرفاً بر اساس نقش تعریف‌شده توسط مدیر به بخش‌های مجاز دسترسی خواهد داشت.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp
+                            lineHeight = 22.sp
                         )
                     }
                 }

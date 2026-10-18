@@ -197,14 +197,12 @@ fun MainAppContent(
             Screen.Dashboard,
             Screen.Pos,
             Screen.Invoices,
-            Screen.Inventory,
-            Screen.Crm
+            Screen.Inventory
         )
         UserRole.VISITOR -> listOf(
             Screen.Dashboard,
             Screen.Invoices,
-            Screen.Inventory,
-            Screen.Crm
+            Screen.Inventory
         )
     }
 
@@ -220,14 +218,12 @@ fun MainAppContent(
             Screen.Dashboard,
             Screen.Pos,
             Screen.Invoices,
-            Screen.Inventory,
-            Screen.Crm
+            Screen.Inventory
         )
         UserRole.VISITOR -> listOf(
             Screen.Dashboard,
             Screen.Invoices,
-            Screen.Inventory,
-            Screen.Crm
+            Screen.Inventory
         )
     }
 
@@ -455,7 +451,14 @@ fun MainAppContent(
                         }
                     }
                     composable(Screen.Crm.route) {
-                        CrmScreen(viewModel = partyViewModel)
+                        if (currentRole == UserRole.ADMIN) {
+                            CrmScreen(viewModel = partyViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Settings.route) {
                         if (currentRole.canAccessSettings) {

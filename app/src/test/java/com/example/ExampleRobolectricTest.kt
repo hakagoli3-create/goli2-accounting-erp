@@ -70,4 +70,64 @@ class ExampleRobolectricTest {
         assertFalse(UserRole.VISITOR.canAccessPos)
         assertTrue(UserRole.VISITOR.isVisitorOnly)
     }
+
+    @Test
+    fun `test database user management and loginWithDb`() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = com.example.data.database.AppDatabase.getInstance(context)
+        val securityManager = AppSecurityAndSettingsManager(context)
+
+        // Ensure default admin exists
+        com.example.data.database.DatabaseSeeder.ensureDefaultUsers(db)
+        val admin = db.userDao().getUserByUsername("admin")
+        org.junit.Assert.assertNotNull(admin)
+        assertEquals("admin", admin?.username)
+        assertEquals("1234", admin?.passwordHash)
+
+        // Login with DB as admin
+        val (adminSuccess, adminError) = securityManager.loginWithDb("admin", "1234", db)
+        assertTrue(adminSuccess)
+        org.junit.Assert.assertNull(adminError)
+        assertEquals("admin", securityManager.loggedInUsername.value)
+        assertEquals(UserRole.ADMIN, securityManager.currentRole.value)
+
+        // Create a new seller user
+        val sellerUser = com.example.data.model.UserEntity(
+            username = "seller_test",
+            passwordHash = "pass123",
+            fullName = "علی فروشنده",
+            role = UserRole.POS_USER.name,
+            isActive = true
+        )
+        db.userDao().insertUser(sellerUser)
+
+        // Test successful seller login
+        val (sellerSuccess, _) = securityManager.loginWithDb("seller_test", "pass123", db)
+        assertTrue(sellerSuccess)
+        assertEquals(UserRole.POS_USER, securityManager.currentRole.value)
+
+        // Test wrong password
+        val (wrongPassSuccess, wrongPassError) = securityManager.loginWithDb("seller_test", "wrong", db)
+        assertFalse(wrongPassSuccess)
+        org.junit.Assert.assertNotNull(wrongPassError)
+
+        // Deactivate seller account
+        val fetchedSeller = db.userDao().getUserByUsername("seller_test")!!
+        db.userDao().updateUserStatus(fetchedSeller.id, false)
+
+        // Test login with inactive account
+        val (inactiveSuccess, inactiveError) = securityManager.loginWithDb("seller_test", "pass123", db)
+        assertFalse(inactiveSuccess)
+        assertTrue(inactiveError?.contains("غیرفعال") == true)
+
+        // Update password
+        db.userDao().updatePassword(fetchedSeller.id, "newpass456")
+        db.userDao().updateUserStatus(fetchedSeller.id, true)
+        val (newPassSuccess, _) = securityManager.loginWithDb("seller_test", "newpass456", db)
+        assertTrue(newPassSuccess)
+
+        // Cleanup
+        db.userDao().deleteUserById(fetchedSeller.id)
+        org.junit.Assert.assertNull(db.userDao().getUserByUsername("seller_test"))
+    }
 }

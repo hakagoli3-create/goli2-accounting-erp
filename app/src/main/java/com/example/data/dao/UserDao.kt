@@ -35,6 +35,12 @@ interface UserDao {
     @Query("UPDATE users SET passwordHash = :newPassword WHERE id = :userId")
     suspend fun updatePassword(userId: Long, newPassword: String)
 
+    @Query("UPDATE users SET isActive = :isActive WHERE id = :userId")
+    suspend fun updateUserStatus(userId: Long, isActive: Boolean)
+
     @Delete
     suspend fun deleteUser(user: UserEntity)
+
+    @Query("DELETE FROM users WHERE id = :userId")
+    suspend fun deleteUserById(userId: Long)
 }

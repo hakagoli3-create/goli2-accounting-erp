@@ -118,23 +118,38 @@ class AppSecurityAndSettingsManager(context: Context) {
     private val _lastSyncTime = MutableStateFlow(prefs.getString("last_sync_time", "هنوز همگام‌سازی نشده") ?: "هنوز همگام‌سازی نشده")
     val lastSyncTime: StateFlow<String> = _lastSyncTime.asStateFlow()
 
-    suspend fun loginWithDb(username: String, pass: String, db: AppDatabase): Boolean {
+    suspend fun loginWithDb(username: String, pass: String, db: AppDatabase): Pair<Boolean, String?> {
         val u = username.trim()
         val p = pass.trim()
+        if (u.isBlank() || p.isBlank()) {
+            return Pair(false, "لطفاً نام کاربری و رمز عبور را وارد نمایید.")
+        }
+
         val user = try {
-            db.userDao().authenticate(u, p)
+            db.userDao().getUserByUsername(u)
         } catch (_: Exception) {
             null
         }
 
         if (user != null) {
+            if (!user.isActive) {
+                return Pair(false, "حساب کاربری «$u» توسط مدیر سیستم غیرفعال شده است.")
+            }
+            if (user.passwordHash != p) {
+                return Pair(false, "رمز عبور وارد شده برای کاربر «$u» نادرست است.")
+            }
             val role = UserRole.fromString(user.role)
             setLoggedInUser(user.username, user.fullName, role)
-            return true
+            return Pair(true, null)
         }
 
-        // Fallback to in-memory / pre-seeded accounts
-        return login(u, p)
+        // Fallback in case DB is being initialized or default admin
+        val fallbackSuccess = login(u, p)
+        return if (fallbackSuccess) {
+            Pair(true, null)
+        } else {
+            Pair(false, "کاربری با نام «$u» یافت نشد یا رمز عبور اشتباه است.")
+        }
     }
 
     fun login(username: String, pass: String): Boolean {
@@ -171,7 +186,13 @@ class AppSecurityAndSettingsManager(context: Context) {
 
     fun logout() {
         _isLoggedIn.value = false
-        prefs.edit().putBoolean("is_logged_in", false).apply()
+        _loggedInUsername.value = ""
+        _loggedInFullName.value = ""
+        prefs.edit()
+            .putBoolean("is_logged_in", false)
+            .putString("logged_in_username", "")
+            .putString("logged_in_fullname", "")
+            .apply()
     }
 
     fun switchRole(role: UserRole) {
