@@ -153,7 +153,7 @@ fun LoginScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "سامانه جامع حسابداری و مدیریت مالی ERP گلی",
+                    text = "سامانه جامع حسابداری و مدیریت مالی گلی",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
