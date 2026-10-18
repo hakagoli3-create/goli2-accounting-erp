@@ -278,35 +278,6 @@ fun LoginScreen(
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Information Box
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = PersianGold, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "راهنمای ورود و سطوح دسترسی:",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "• برای اولین ورود، از حساب مدیر کل پیش‌فرض (admin / 1234) استفاده کنید.\n" +
-                                    "• پس از ورود، مدیر می‌تواند در بخش تنظیمات رمز خود را تغییر داده و برای فروشندگان و ویزیتورها حساب اختصاصی ایجاد کند.\n" +
-                                    "• هر کاربر صرفاً بر اساس نقش تعریف‌شده توسط مدیر به بخش‌های مجاز دسترسی خواهد داشت.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 22.sp
-                        )
-                    }
-                }
             }
         }
     }
