@@ -19,28 +19,38 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.data.database.AppDatabase
+import com.example.data.model.UserEntity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +103,15 @@ fun SettingsScreen(
     var defaultBankCard by remember(storeProfile) { mutableStateOf(storeProfile.defaultBankCard) }
     var defaultSheba by remember(storeProfile) { mutableStateOf(storeProfile.defaultSheba) }
     var taxRate by remember(storeProfile) { mutableStateOf(storeProfile.taxRatePercent.toString()) }
+
+    val db = remember { AppDatabase.getInstance(context) }
+    val loggedInUsername by securityManager.loggedInUsername.collectAsStateWithLifecycle()
+    val loggedInFullName by securityManager.loggedInFullName.collectAsStateWithLifecycle()
+    val systemUsers by db.userDao().getAllUsers().collectAsStateWithLifecycle(emptyList())
+
+    var newPasswordInput by remember { mutableStateOf("") }
+    var showAddUserDialog by remember { mutableStateOf(false) }
+    var userToDelete by remember { mutableStateOf<UserEntity?>(null) }
 
     var isSyncing by remember { mutableStateOf(false) }
 
@@ -235,6 +254,177 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 lineHeight = 18.sp
                             )
+                        }
+                    }
+                }
+            }
+
+            // User Management & Security Section (مدیریت کاربران و تغییر رمز عبور)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AdminPanelSettings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "مدیریت کاربران و امنیت (User Accounts & Password)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "کاربر جاری: $loggedInFullName ($loggedInUsername) | سطح: ${currentRole.title}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "تغییر رمز عبور کاربر فعال:",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newPasswordInput,
+                            onValueChange = { newPasswordInput = it },
+                            label = { Text("رمز عبور جدید") },
+                            leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_new_password_field"),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Button(
+                            onClick = {
+                                if (newPasswordInput.trim().length < 3) {
+                                    Toast.makeText(context, "رمز عبور جدید باید حداقل ۳ کاراکتر باشد.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    scope.launch {
+                                        val u = db.userDao().getUserByUsername(loggedInUsername)
+                                        if (u != null) {
+                                            db.userDao().updatePassword(u.id, newPasswordInput.trim())
+                                            Toast.makeText(context, "رمز عبور کاربر «$loggedInUsername» با موفقیت تغییر یافت.", Toast.LENGTH_SHORT).show()
+                                            newPasswordInput = ""
+                                        } else {
+                                            Toast.makeText(context, "کاربر در دیتابیس یافت نشد.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .height(56.dp)
+                                .testTag("settings_save_password_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("ثبت رمز")
+                        }
+                    }
+
+                    if (currentRole == UserRole.ADMIN) {
+                        Spacer(modifier = Modifier.height(18.dp))
+                        androidx.compose.material3.HorizontalDivider()
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "کاربران تعریف‌شده در سیستم:",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Button(
+                                onClick = { showAddUserDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.testTag("add_user_button"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("افزودن کاربر", fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            systemUsers.forEach { user ->
+                                val userRoleObj = UserRole.fromString(user.role)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = when (userRoleObj) {
+                                                    UserRole.ADMIN -> Icons.Default.AdminPanelSettings
+                                                    UserRole.POS_USER -> Icons.Default.PointOfSale
+                                                    UserRole.VISITOR -> Icons.Default.Badge
+                                                },
+                                                contentDescription = null,
+                                                tint = when (userRoleObj) {
+                                                    UserRole.ADMIN -> PersianGold
+                                                    UserRole.POS_USER -> MaterialTheme.colorScheme.primary
+                                                    UserRole.VISITOR -> Color(0xFF7E57C2)
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = "${user.fullName} (${user.username})",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp
+                                                )
+                                                Text(
+                                                    text = userRoleObj.title,
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        if (user.username.lowercase() != "admin") {
+                                            IconButton(
+                                                onClick = { userToDelete = user },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "حذف کاربر",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -572,6 +762,143 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
+        if (showAddUserDialog) {
+            var addUsername by remember { mutableStateOf("") }
+            var addPassword by remember { mutableStateOf("") }
+            var addFullName by remember { mutableStateOf("") }
+            var addRole by remember { mutableStateOf(UserRole.POS_USER) }
+            var addMobile by remember { mutableStateOf("") }
+
+            AlertDialog(
+                onDismissRequest = { showAddUserDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("افزودن کاربر جدید", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = addFullName,
+                            onValueChange = { addFullName = it },
+                            label = { Text("نام و نام خانوادگی") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        OutlinedTextField(
+                            value = addUsername,
+                            onValueChange = { addUsername = it },
+                            label = { Text("نام کاربری (لاتین)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        OutlinedTextField(
+                            value = addPassword,
+                            onValueChange = { addPassword = it },
+                            label = { Text("رمز عبور") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        OutlinedTextField(
+                            value = addMobile,
+                            onValueChange = { addMobile = it },
+                            label = { Text("شماره موبایل") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                        )
+
+                        Text("انتخاب نقش کاربر:", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            UserRole.entries.forEach { r ->
+                                FilterChip(
+                                    selected = addRole == r,
+                                    onClick = { addRole = r },
+                                    label = { Text(r.title.split(" ")[0], fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (addFullName.isBlank() || addUsername.isBlank() || addPassword.isBlank()) {
+                                Toast.makeText(context, "لطفاً تمام فیلدهای الزامی را تکمیل کنید.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                scope.launch {
+                                    val existing = db.userDao().getUserByUsername(addUsername.trim())
+                                    if (existing != null) {
+                                        Toast.makeText(context, "این نام کاربری قبلاً استفاده شده است.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val newUser = UserEntity(
+                                            username = addUsername.trim(),
+                                            passwordHash = addPassword.trim(),
+                                            fullName = addFullName.trim(),
+                                            role = addRole.name,
+                                            mobile = addMobile.trim()
+                                        )
+                                        db.userDao().insertUser(newUser)
+                                        Toast.makeText(context, "کاربر «${newUser.fullName}» با موفقیت ثبت شد.", Toast.LENGTH_SHORT).show()
+                                        showAddUserDialog = false
+                                    }
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("ثبت کاربر")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddUserDialog = false }) {
+                        Text("انصراف")
+                    }
+                }
+            )
+        }
+
+        userToDelete?.let { user ->
+            AlertDialog(
+                onDismissRequest = { userToDelete = null },
+                title = { Text("حذف کاربر سیستم", fontWeight = FontWeight.Bold) },
+                text = { Text("آیا از حذف حساب کاربری «${user.fullName} (${user.username})» اطمینان دارید؟") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                db.userDao().deleteUser(user)
+                                Toast.makeText(context, "کاربر با موفقیت حذف شد.", Toast.LENGTH_SHORT).show()
+                                userToDelete = null
+                            }
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("تایید و حذف")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { userToDelete = null }) {
+                        Text("انصراف")
+                    }
+                }
+            )
         }
     }
 }

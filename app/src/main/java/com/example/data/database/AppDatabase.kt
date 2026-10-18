@@ -11,6 +11,7 @@ import com.example.data.dao.InventoryDao
 import com.example.data.dao.InvoiceDao
 import com.example.data.dao.PartyDao
 import com.example.data.dao.TreasuryDao
+import com.example.data.dao.UserDao
 import com.example.data.model.AccountGroupEntity
 import com.example.data.model.BankAccountEntity
 import com.example.data.model.CashDeskEntity
@@ -28,6 +29,7 @@ import com.example.data.model.JournalItemEntity
 import com.example.data.model.PartyEntity
 import com.example.data.model.ProductEntity
 import com.example.data.model.SubsidiaryAccountEntity
+import com.example.data.model.UserEntity
 import com.example.data.model.WarehouseEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,9 +54,10 @@ import kotlinx.coroutines.launch
         ExpenseCategoryEntity::class,
         ExpenseEntity::class,
         IncomeCategoryEntity::class,
-        IncomeEntity::class
+        IncomeEntity::class,
+        UserEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -65,6 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun treasuryDao(): TreasuryDao
     abstract fun invoiceDao(): InvoiceDao
     abstract fun expenseAndIncomeDao(): ExpenseAndIncomeDao
+    abstract fun userDao(): UserDao
 
     companion object {
         @Volatile
@@ -140,6 +144,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        username TEXT NOT NULL,
+                        passwordHash TEXT NOT NULL,
+                        fullName TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        mobile TEXT NOT NULL,
+                        isActive INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_users_username ON users(username)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -150,15 +172,24 @@ abstract class AppDatabase : RoomDatabase() {
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
-                            // Seed default Iranian chart of accounts, warehouses, products, and parties
+                            // Seed default Iranian chart of accounts, warehouses, products, parties, and users
                             CoroutineScope(Dispatchers.IO).launch {
                                 getInstance(context).let { appDb ->
                                     DatabaseSeeder.seedDefaultData(appDb)
                                 }
                             }
                         }
+
+                        override fun onOpen(db: SupportSQLiteDatabase) {
+                            super.onOpen(db)
+                            CoroutineScope(Dispatchers.IO).launch {
+                                getInstance(context).let { appDb ->
+                                    DatabaseSeeder.ensureDefaultUsers(appDb)
+                                }
+                            }
+                        }
                     })
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

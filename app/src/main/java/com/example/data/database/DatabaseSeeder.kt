@@ -516,5 +516,45 @@ object DatabaseSeeder {
             notes = "تسویه نقدی و واریز به کارتخوان ملت"
         )
         db.expenseAndIncomeDao().insertIncome(sampleIncome)
+
+        // 13. Default System Users (مدیر کل، فروشنده، ویزیتور)
+        ensureDefaultUsers(db)
+    }
+
+    suspend fun ensureDefaultUsers(db: AppDatabase) {
+        try {
+            val count = db.userDao().getUserCount()
+            if (count == 0) {
+                val defaultUsers = listOf(
+                    com.example.data.model.UserEntity(
+                        id = 1,
+                        username = "admin",
+                        passwordHash = "1234",
+                        fullName = "مدیر کل سیستم",
+                        role = "ADMIN",
+                        mobile = "09121112233"
+                    ),
+                    com.example.data.model.UserEntity(
+                        id = 2,
+                        username = "seller",
+                        passwordHash = "1234",
+                        fullName = "صندوق‌دار / فروشنده",
+                        role = "POS_USER",
+                        mobile = "09122223344"
+                    ),
+                    com.example.data.model.UserEntity(
+                        id = 3,
+                        username = "visitor",
+                        passwordHash = "1234",
+                        fullName = "ویزیتور و بازاریاب",
+                        role = "VISITOR",
+                        mobile = "09123334455"
+                    )
+                )
+                db.userDao().insertUsers(defaultUsers)
+            }
+        } catch (_: Exception) {
+            // Ignore if already existing
+        }
     }
 }

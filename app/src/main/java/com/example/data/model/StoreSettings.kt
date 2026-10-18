@@ -2,34 +2,58 @@ package com.example.data.model
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.data.database.AppDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class UserRole(
+    val code: String,
     val title: String,
     val description: String
 ) {
-    MANAGER(
-        title = "مدیر کل (Full Access)",
-        description = "دسترسی کامل به سود/زیان، ویرایش قیمت‌ها، حذف اسناد و تنظیمات"
+    ADMIN(
+        code = "ADMIN",
+        title = "مدیر کل (Admin)",
+        description = "دسترسی کاملاً آزاد به تمام بخش‌ها، تنظیمات و CRUD کامل"
     ),
-    SELLER(
-        title = "فروشنده / صندوقدار",
-        description = "دسترسی به صندوق POS، صدور فاکتور و مشتریان (بدون سود و حذف)"
+    POS_USER(
+        code = "POS_USER",
+        title = "فروشنده / صندوق‌دار (POS User)",
+        description = "محدود به صدور فاکتور، مشاهده کالا و صندوق"
     ),
     VISITOR(
-        title = "ویزیتور / بازاریاب",
-        description = "دسترسی به کاتالوگ عمده، ثبت فاکتور مشتریان و مانده حساب آنها"
+        code = "VISITOR",
+        title = "ویزیتور (Visitor)",
+        description = "محدود به کاتالوگ و ثبت پیش‌فاکتور"
     );
 
-    val canViewProfit: Boolean get() = this == MANAGER
-    val canDeleteDocuments: Boolean get() = this == MANAGER
-    val canEditCostPrices: Boolean get() = this == MANAGER
-    val canAccessAccountingLedger: Boolean get() = this == MANAGER || this == SELLER
-    val canAccessTreasuryBalances: Boolean get() = this == MANAGER
-    val canAccessSettings: Boolean get() = this == MANAGER
+    val canViewProfit: Boolean get() = this == ADMIN
+    val canDeleteDocuments: Boolean get() = this == ADMIN
+    val canEditCostPrices: Boolean get() = this == ADMIN
+    val canAccessAccountingLedger: Boolean get() = this == ADMIN
+    val canAccessAccounting: Boolean get() = this == ADMIN
+    val canAccessTreasuryBalances: Boolean get() = this == ADMIN
+    val canAccessTreasury: Boolean get() = this == ADMIN
+    val canAccessExpensesAndIncomes: Boolean get() = this == ADMIN
+    val canAccessSettings: Boolean get() = this == ADMIN
+    val canAccessPos: Boolean get() = this == ADMIN || this == POS_USER
     val canIssueInvoices: Boolean get() = true
+    val isVisitorOnly: Boolean get() = this == VISITOR
+
+    companion object {
+        val MANAGER = ADMIN
+        val SELLER = POS_USER
+
+        fun fromString(value: String?): UserRole {
+            return when (value?.uppercase()) {
+                "ADMIN", "MANAGER" -> ADMIN
+                "POS_USER", "SELLER" -> POS_USER
+                "VISITOR" -> VISITOR
+                else -> ADMIN
+            }
+        }
+    }
 }
 
 data class StoreProfile(
@@ -56,14 +80,18 @@ enum class CloudSyncStatus(val title: String) {
 class AppSecurityAndSettingsManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("goli_erp_settings", Context.MODE_PRIVATE)
 
-    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", true))
+    // Session status - defaults to false on first launch to show LoginScreen as start destination
+    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
     private val _loggedInUsername = MutableStateFlow(prefs.getString("logged_in_username", "admin") ?: "admin")
     val loggedInUsername: StateFlow<String> = _loggedInUsername.asStateFlow()
 
+    private val _loggedInFullName = MutableStateFlow(prefs.getString("logged_in_fullname", "مدیر سیستم") ?: "مدیر سیستم")
+    val loggedInFullName: StateFlow<String> = _loggedInFullName.asStateFlow()
+
     private val _currentRole = MutableStateFlow(
-        UserRole.valueOf(prefs.getString("user_role", UserRole.MANAGER.name) ?: UserRole.MANAGER.name)
+        UserRole.fromString(prefs.getString("user_role", UserRole.ADMIN.name))
     )
     val currentRole: StateFlow<UserRole> = _currentRole.asStateFlow()
 
@@ -90,30 +118,55 @@ class AppSecurityAndSettingsManager(context: Context) {
     private val _lastSyncTime = MutableStateFlow(prefs.getString("last_sync_time", "هنوز همگام‌سازی نشده") ?: "هنوز همگام‌سازی نشده")
     val lastSyncTime: StateFlow<String> = _lastSyncTime.asStateFlow()
 
+    suspend fun loginWithDb(username: String, pass: String, db: AppDatabase): Boolean {
+        val u = username.trim()
+        val p = pass.trim()
+        val user = try {
+            db.userDao().authenticate(u, p)
+        } catch (_: Exception) {
+            null
+        }
+
+        if (user != null) {
+            val role = UserRole.fromString(user.role)
+            setLoggedInUser(user.username, user.fullName, role)
+            return true
+        }
+
+        // Fallback to in-memory / pre-seeded accounts
+        return login(u, p)
+    }
+
     fun login(username: String, pass: String): Boolean {
         val u = username.trim().lowercase()
         val p = pass.trim()
-        val role = when {
-            u == "admin" && (p == "1234" || p == "admin") -> UserRole.MANAGER
-            u == "seller" && (p == "1234" || p == "seller") -> UserRole.SELLER
-            u == "visitor" && (p == "1234" || p == "visitor") -> UserRole.VISITOR
-            u == "manager" && p == "1234" -> UserRole.MANAGER
-            else -> null
+        val (role, fullName) = when {
+            u == "admin" && (p == "1234" || p == "admin") -> Pair(UserRole.ADMIN, "مدیر کل سیستم")
+            u == "seller" && (p == "1234" || p == "seller") -> Pair(UserRole.POS_USER, "صندوق‌دار / فروشنده")
+            u == "visitor" && (p == "1234" || p == "visitor") -> Pair(UserRole.VISITOR, "ویزیتور / بازاریاب")
+            u == "manager" && p == "1234" -> Pair(UserRole.ADMIN, "مدیر کل")
+            else -> Pair(null, null)
         }
 
         return if (role != null) {
-            _isLoggedIn.value = true
-            _loggedInUsername.value = u
-            _currentRole.value = role
-            prefs.edit()
-                .putBoolean("is_logged_in", true)
-                .putString("logged_in_username", u)
-                .putString("user_role", role.name)
-                .apply()
+            setLoggedInUser(u, fullName ?: u, role)
             true
         } else {
             false
         }
+    }
+
+    fun setLoggedInUser(username: String, fullName: String, role: UserRole) {
+        _isLoggedIn.value = true
+        _loggedInUsername.value = username
+        _loggedInFullName.value = fullName
+        _currentRole.value = role
+        prefs.edit()
+            .putBoolean("is_logged_in", true)
+            .putString("logged_in_username", username)
+            .putString("logged_in_fullname", fullName)
+            .putString("user_role", role.name)
+            .apply()
     }
 
     fun logout() {

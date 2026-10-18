@@ -22,9 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PointOfSale
@@ -32,6 +36,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
@@ -45,6 +50,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
@@ -62,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,8 +78,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.data.database.AppDatabase
 import com.example.data.model.AppSecurityAndSettingsManager
 import com.example.data.model.CloudSyncStatus
+import com.example.data.model.UserRole
 import com.example.ui.screens.AccountingScreen
 import com.example.ui.screens.CrmScreen
 import com.example.ui.screens.DashboardScreen
@@ -135,18 +144,23 @@ fun MainAppContent(
 ) {
     val context = LocalContext.current
     val factory = remember { AppViewModelFactory(context) }
+    val db = remember { AppDatabase.getInstance(context) }
 
     val isLoggedIn by securityManager.isLoggedIn.collectAsStateWithLifecycle()
 
+    // LoginScreen as start destination when not authenticated
     if (!isLoggedIn) {
         LoginScreen(
             securityManager = securityManager,
+            db = db,
             onLoginSuccess = {}
         )
         return
     }
 
     val currentRole by securityManager.currentRole.collectAsStateWithLifecycle()
+    val loggedInUsername by securityManager.loggedInUsername.collectAsStateWithLifecycle()
+    val loggedInFullName by securityManager.loggedInFullName.collectAsStateWithLifecycle()
     val syncStatus by securityManager.syncStatus.collectAsStateWithLifecycle()
     val storeProfile by securityManager.storeProfile.collectAsStateWithLifecycle()
 
@@ -162,26 +176,60 @@ fun MainAppContent(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Dashboard.route
 
-    val bottomNavItems = listOf(
-        Screen.Dashboard,
-        Screen.Pos,
-        Screen.Invoices,
-        Screen.Expenses,
-        Screen.Treasury
-    )
+    // RBAC: Dynamic screens based on user role
+    // 1) Admin: Full access to all screens, settings and CRUD
+    // 2) POS User (Seller): Limited to issuing invoices, viewing products, and cash desk POS
+    // 3) Visitor: Limited to catalog and pre-invoices/orders
+    val allowedDrawerScreens = when (currentRole) {
+        UserRole.ADMIN -> listOf(
+            Screen.Dashboard,
+            Screen.Pos,
+            Screen.Invoices,
+            Screen.Expenses,
+            Screen.Incomes,
+            Screen.Accounting,
+            Screen.Inventory,
+            Screen.Treasury,
+            Screen.Crm,
+            Screen.Settings
+        )
+        UserRole.POS_USER -> listOf(
+            Screen.Dashboard,
+            Screen.Pos,
+            Screen.Invoices,
+            Screen.Inventory,
+            Screen.Crm
+        )
+        UserRole.VISITOR -> listOf(
+            Screen.Dashboard,
+            Screen.Invoices,
+            Screen.Inventory,
+            Screen.Crm
+        )
+    }
 
-    val allScreens = listOf(
-        Screen.Dashboard,
-        Screen.Pos,
-        Screen.Invoices,
-        Screen.Expenses,
-        Screen.Incomes,
-        Screen.Accounting,
-        Screen.Inventory,
-        Screen.Treasury,
-        Screen.Crm,
-        Screen.Settings
-    )
+    val bottomNavItems = when (currentRole) {
+        UserRole.ADMIN -> listOf(
+            Screen.Dashboard,
+            Screen.Pos,
+            Screen.Invoices,
+            Screen.Expenses,
+            Screen.Treasury
+        )
+        UserRole.POS_USER -> listOf(
+            Screen.Dashboard,
+            Screen.Pos,
+            Screen.Invoices,
+            Screen.Inventory,
+            Screen.Crm
+        )
+        UserRole.VISITOR -> listOf(
+            Screen.Dashboard,
+            Screen.Invoices,
+            Screen.Inventory,
+            Screen.Crm
+        )
+    }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -197,14 +245,20 @@ fun MainAppContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "مدیریت: ${storeProfile.managerName}",
+                        text = "کاربر جاری: $loggedInFullName ($loggedInUsername)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // RBAC Active Role Indicator
+                    // RBAC Active Role Indicator with Role-Specific Badge
+                    val roleBadgeColor = when (currentRole) {
+                        UserRole.ADMIN -> PersianGold
+                        UserRole.POS_USER -> MaterialTheme.colorScheme.primary
+                        UserRole.VISITOR -> Color(0xFF7E57C2)
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
@@ -216,10 +270,19 @@ fun MainAppContent(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = PersianGold, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = when (currentRole) {
+                                    UserRole.ADMIN -> Icons.Default.AdminPanelSettings
+                                    UserRole.POS_USER -> Icons.Default.PointOfSale
+                                    UserRole.VISITOR -> Icons.Default.Badge
+                                },
+                                contentDescription = null,
+                                tint = roleBadgeColor,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "نقش فعال: ${currentRole.title}",
+                                text = "سطح دسترسی: ${currentRole.title}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -246,24 +309,26 @@ fun MainAppContent(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    androidx.compose.material3.OutlinedButton(
+                    OutlinedButton(
                         onClick = {
                             scope.launch { drawerState.close() }
                             securityManager.logout()
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("logout_button"),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("خروج / تغییر کاربر (RBAC)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("خروج از حساب (Logout)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
-                allScreens.forEach { screen ->
+                allowedDrawerScreens.forEach { screen ->
                     NavigationDrawerItem(
                         label = { Text(screen.title, fontWeight = FontWeight.SemiBold) },
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -334,36 +399,141 @@ fun MainAppContent(
                         )
                     }
                     composable(Screen.Pos.route) {
-                        PosScreen(viewModel = invoiceViewModel)
+                        if (currentRole.canAccessPos) {
+                            PosScreen(viewModel = invoiceViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Invoices.route) {
                         InvoiceScreen(viewModel = invoiceViewModel)
                     }
                     composable(Screen.Expenses.route) {
-                        ExpenseScreen(viewModel = expenseAndIncomeViewModel)
+                        if (currentRole.canAccessExpensesAndIncomes) {
+                            ExpenseScreen(viewModel = expenseAndIncomeViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Incomes.route) {
-                        IncomeScreen(viewModel = expenseAndIncomeViewModel)
+                        if (currentRole.canAccessExpensesAndIncomes) {
+                            IncomeScreen(viewModel = expenseAndIncomeViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Accounting.route) {
-                        AccountingScreen(viewModel = accountingViewModel)
+                        if (currentRole.canAccessAccounting) {
+                            AccountingScreen(viewModel = accountingViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Inventory.route) {
                         InventoryScreen(viewModel = inventoryViewModel)
                     }
                     composable(Screen.Treasury.route) {
-                        TreasuryScreen(viewModel = treasuryViewModel)
+                        if (currentRole.canAccessTreasury) {
+                            TreasuryScreen(viewModel = treasuryViewModel)
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
                     composable(Screen.Crm.route) {
                         CrmScreen(viewModel = partyViewModel)
                     }
                     composable(Screen.Settings.route) {
-                        SettingsScreen(
-                            securityManager = securityManager,
-                            isDarkTheme = isDarkTheme,
-                            onToggleDarkTheme = onToggleDarkTheme
-                        )
+                        if (currentRole.canAccessSettings) {
+                            SettingsScreen(
+                                securityManager = securityManager,
+                                isDarkTheme = isDarkTheme,
+                                onToggleDarkTheme = onToggleDarkTheme
+                            )
+                        } else {
+                            AccessDeniedCard(
+                                role = currentRole,
+                                onBackToDashboard = { navController.navigate(Screen.Dashboard.route) }
+                            )
+                        }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AccessDeniedCard(
+    role: UserRole,
+    onBackToDashboard: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth(0.92f)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(MaterialTheme.colorScheme.errorContainer, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Text(
+                    text = "عدم دسترسی به این بخش (محدودیت RBAC)",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "نقش فعال شما «${role.title}» است و دسترسی به این بخش به دلیل محدودیت‌های امنیتی سازمانی مسدود می‌باشد.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                Button(
+                    onClick = onBackToDashboard,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("بازگشت به داشبورد")
                 }
             }
         }
