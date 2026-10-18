@@ -162,8 +162,57 @@ class InventoryViewModel(
                 val res = repository.deleteProductSafely(product)
                 onResult(res.first, res.second)
             } catch (e: Exception) {
-                onResult(false, "امکان حذف این کالا به دلیل داشتن وابستگی در سایر اسناد وجود ندارد.")
+                onResult(false, "امکان حذف این کالا به دلیل داشتن وابستگی در سایر اسناد وجود ندارد: ${e.localizedMessage}")
             }
+        }
+    }
+
+    /**
+     * رفع قطعی بن‌بست حذف کالا: پاکسازی تمام گردش‌ها و حذف کالا
+     */
+    fun forceDeleteProduct(product: ProductEntity, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val res = repository.forceDeleteProductAndMovements(product)
+                onResult(res.first, res.second)
+            } catch (e: Exception) {
+                onResult(false, "خطا در پاکسازی و حذف کالا: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /**
+     * حذف مستقیم یک ردیف گردش از کاردکس
+     */
+    fun deleteSingleMovement(movementId: Long, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val res = repository.deleteSingleMovement(movementId)
+                onResult(res.first, res.second)
+            } catch (e: Exception) {
+                onResult(false, "خطا در حذف گردش: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /**
+     * پاکسازی تمام گردش‌های یک کالا
+     */
+    fun clearAllMovementsForProduct(productId: Long, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val res = repository.clearAllMovementsForProduct(productId)
+                onResult(res.first, res.second)
+            } catch (e: Exception) {
+                onResult(false, "خطا در پاکسازی کاردکس: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun getProductDependencies(productId: Long, onResult: (invoices: Int, movements: Int) -> Unit) {
+        viewModelScope.launch {
+            val (inv, mov) = repository.getProductDependenciesCount(productId)
+            onResult(inv, mov)
         }
     }
 

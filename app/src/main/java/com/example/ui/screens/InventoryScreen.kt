@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Inventory2
@@ -254,7 +256,17 @@ fun InventoryScreen(
                         products = allProducts,
                         selectedProduct = selectedCardexProduct,
                         productMovements = cardexMovements,
-                        onSelectProduct = { viewModel.selectProductForCardex(it) }
+                        onSelectProduct = { viewModel.selectProductForCardex(it) },
+                        onDeleteMovement = { movId ->
+                            viewModel.deleteSingleMovement(movId) { success, msg ->
+                                Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onClearAllMovements = { prodId ->
+                            viewModel.clearAllMovementsForProduct(prodId) { success, msg ->
+                                Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                            }
+                        }
                     )
                 }
             }
@@ -356,37 +368,131 @@ fun InventoryScreen(
         StockCardexDialog(
             product = product,
             movements = cardexMovements,
-            onDismiss = { viewModel.selectProductForCardex(null) }
+            onDismiss = { viewModel.selectProductForCardex(null) },
+            onDeleteMovement = { movId ->
+                viewModel.deleteSingleMovement(movId) { success, msg ->
+                    Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                }
+            },
+            onClearAllMovements = { prodId ->
+                viewModel.clearAllMovementsForProduct(prodId) { success, msg ->
+                    Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                }
+            }
         )
     }
 
-    // دیالوگ تایید حذف کالا
+    // دیالوگ تایید حذف کالا (با رفع بن‌بست حذف کالا و امکان پاکسازی یک‌کلیکی گردش‌های مانده)
     productToDelete?.let { prod ->
+        var depCounts by remember(prod.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+        var isForceDeleting by remember { mutableStateOf(false) }
+
+        androidx.compose.runtime.LaunchedEffect(prod.id) {
+            viewModel.getProductDependencies(prod.id) { inv, mov ->
+                depCounts = Pair(inv, mov)
+            }
+        }
+
+        val invoiceDeps = depCounts?.first ?: 0
+        val movementDeps = depCounts?.second ?: 0
+        val hasDeps = invoiceDeps > 0 || movementDeps > 0
+
         AlertDialog(
             onDismissRequest = { productToDelete = null },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AccountingCreditRed) },
             title = { Text("حذف کالا از انبار", fontWeight = FontWeight.Bold) },
             text = {
-                Text("آیا از حذف کالای «${prod.name}» (کد: ${prod.code}) اطمینان دارید؟ در صورت وجود گردش مالی یا فاکتور ثبت‌شده، حذف غیرمجاز خواهد بود.")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("آیا از حذف کالای «${prod.name}» (کد: ${prod.code}) اطمینان دارید؟")
+                    Text(
+                        text = "موجودی لحظه‌ای: ${prod.formatStockDisplay()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    if (hasDeps) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = AccountingCreditRed.copy(alpha = 0.12f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "⚠️ بن‌بست حذف شناسایی شد: این کالا دارای $movementDeps گردش کاردکس و $invoiceDeps فاکتور مرتبط است.",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccountingCreditRed
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "برای حذف فوری و رفع بن‌بست، روی «پاکسازی و حذف گردش» بزنید تا تمام رکوردهای یتیم و گردش‌های باقیمانده پاک شده و کالا کلاً حذف شود.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (depCounts != null) {
+                        Text(
+                            text = "این کالا هیچ‌گونه گردش یا فاکتوری ندارد و به‌صورت تمیز حذف خواهد شد.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteProduct(prod) { success, msg ->
-                            Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-                            productToDelete = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("حذف قطعی کالا")
+                    if (hasDeps) {
+                        Button(
+                            onClick = {
+                                isForceDeleting = true
+                                viewModel.forceDeleteProduct(prod) { success, msg ->
+                                    isForceDeleting = false
+                                    Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                                    if (success) {
+                                        productToDelete = null
+                                    }
+                                }
+                            },
+                            enabled = !isForceDeleting,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isForceDeleting) "در حال پاکسازی..." else "پاکسازی و حذف گردش کالا")
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { productToDelete = null }) {
+                            Text("انصراف")
+                        }
+                        if (!hasDeps) {
+                            Button(
+                                onClick = {
+                                    viewModel.deleteProduct(prod) { success, msg ->
+                                        Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                                        if (success) productToDelete = null
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("حذف قطعی کالا")
+                            }
+                        }
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { productToDelete = null }) {
-                    Text("انصراف")
-                }
-            }
+            dismissButton = {}
         )
     }
 
@@ -771,16 +877,20 @@ private fun CardexTabContent(
     products: List<ProductEntity>,
     selectedProduct: ProductEntity?,
     productMovements: List<InventoryMovementEntity>,
-    onSelectProduct: (ProductEntity?) -> Unit
+    onSelectProduct: (ProductEntity?) -> Unit,
+    onDeleteMovement: (Long) -> Unit,
+    onClearAllMovements: (Long) -> Unit
 ) {
     val movementsToShow = if (selectedProduct != null) productMovements else recentMovements
     val productsMap = remember(products) { products.associateBy { it.id } }
+    var movementToDelete by remember { mutableStateOf<InventoryMovementEntity?>(null) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(top = 12.dp, bottom = 84.dp)
     ) {
         item {
@@ -788,31 +898,46 @@ private fun CardexTabContent(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = if (selectedProduct != null) "کاردکس کالای: ${selectedProduct.name}" else "گردش‌های اخیر کل انبار (۱۰۰ تراکنش اخیر)",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        if (selectedProduct != null) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "موجودی لحظه‌ای: ${selectedProduct.formatStockDisplay()}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary
+                                text = if (selectedProduct != null) "کاردکس کالای: ${selectedProduct.name}" else "گردش‌های اخیر کل انبار (تمام تراکنش‌ها)",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
                             )
+                            if (selectedProduct != null) {
+                                Text(
+                                    text = "موجودی لحظه‌ای: ${selectedProduct.formatStockDisplay()} | تعداد گردش: ${productMovements.size}",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
-                    }
 
-                    if (selectedProduct != null) {
-                        TextButton(onClick = { onSelectProduct(null) }) {
-                            Text("نمایش همه")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (selectedProduct != null) {
+                                if (productMovements.isNotEmpty()) {
+                                    Button(
+                                        onClick = { showClearAllConfirm = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed.copy(alpha = 0.85f)),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("پاکسازی کل گردش‌ها", fontSize = 11.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+                                TextButton(onClick = { onSelectProduct(null) }) {
+                                    Text("نمایش همه")
+                                }
+                            }
                         }
                     }
                 }
@@ -844,7 +969,7 @@ private fun CardexTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -859,17 +984,88 @@ private fun CardexTabContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(
-                            text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(mov.quantitySecondary) + " ${prod?.secondaryUnit ?: "عدد"}",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = if (isEntry) AccountingDebitGreen else AccountingCreditRed
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(mov.quantitySecondary) + " ${prod?.secondaryUnit ?: "عدد"}",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isEntry) AccountingDebitGreen else AccountingCreditRed
+                                )
                             )
-                        )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { movementToDelete = mov },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "حذف مستقیم گردش",
+                                    tint = AccountingCreditRed,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    movementToDelete?.let { mov ->
+        AlertDialog(
+            onDismissRequest = { movementToDelete = null },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("حذف مستقیم گردش از کاردکس", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از حذف مستقیم این گردش («${mov.referenceNumber}» - ${formatDocumentTypePersian(mov.documentType)}) اطمینان دارید؟\nبا حذف این رکورد، اثر آن از موجودی انبار برداشته شده و کالا به امکان حذف بدون مانع نزدیک می‌شود.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteMovement(mov.id)
+                        movementToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("حذف این گردش")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { movementToDelete = null }) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+    if (showClearAllConfirm && selectedProduct != null) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirm = false },
+            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("پاکسازی کامل کاردکس کالا", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از پاکسازی تمامی گردش‌های کالای «${selectedProduct.name}» اطمینان دارید؟ با این کار تمام رکوردهای کاردکس پاک شده، موجودی صفر گردیده و کالا آماده حذف کامل خواهد بود.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearAllMovements(selectedProduct.id)
+                        showClearAllConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("پاکسازی کامل گردش‌ها")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("انصراف")
+                }
+            }
+        )
     }
 }
 
@@ -907,14 +1103,19 @@ private fun StatPillCard(
 }
 
 /**
- * دیالوگ کاردکس کالا
+ * دیالوگ کاردکس کالا با امکان مشاهده کامل تمام گردش‌ها و دکمه حذف مستقیم
  */
 @Composable
 fun StockCardexDialog(
     product: ProductEntity,
     movements: List<InventoryMovementEntity>,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onDeleteMovement: (Long) -> Unit = {},
+    onClearAllMovements: (Long) -> Unit = {}
 ) {
+    var movementToDelete by remember { mutableStateOf<InventoryMovementEntity?>(null) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -936,13 +1137,13 @@ fun StockCardexDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "کاردکس کالا: ${product.name}",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "موجودی لحظه‌ای: ${product.formatStockDisplay()}",
+                            text = "موجودی لحظه‌ای: ${product.formatStockDisplay()} (${movements.size} گردش ثبت شده)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -952,7 +1153,32 @@ fun StockCardexDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (movements.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "تمامی گردش‌ها (شامل فاکتورها، ابطالی‌ها، حواله‌ها و تعدیل)",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { showClearAllConfirm = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed.copy(alpha = 0.85f)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("پاکسازی کل گردش‌ها", fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 if (movements.isEmpty()) {
                     Box(
@@ -961,7 +1187,7 @@ fun StockCardexDialog(
                             .height(180.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("گردشی برای این کالا ثبت نشده است.")
+                        Text("گردشی برای این کالا در سیستم ثبت نشده است (گردش صفر).")
                     }
                 } else {
                     LazyColumn(
@@ -998,13 +1224,27 @@ fun StockCardexDialog(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    Text(
-                                        text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(mov.quantitySecondary) + " ${product.secondaryUnit}",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isEntry) AccountingDebitGreen else AccountingCreditRed
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = (if (isEntry) "+" else "") + NumberFormatUtils.formatQuantity(mov.quantitySecondary) + " ${product.secondaryUnit}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isEntry) AccountingDebitGreen else AccountingCreditRed
+                                            )
                                         )
-                                    )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        IconButton(
+                                            onClick = { movementToDelete = mov },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "حذف مستقیم این گردش",
+                                                tint = AccountingCreditRed,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1012,6 +1252,62 @@ fun StockCardexDialog(
                 }
             }
         }
+    }
+
+    movementToDelete?.let { mov ->
+        AlertDialog(
+            onDismissRequest = { movementToDelete = null },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("حذف مستقیم گردش از کاردکس", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از حذف مستقیم این گردش («${mov.referenceNumber}» - ${formatDocumentTypePersian(mov.documentType)}) اطمینان دارید؟\nبا حذف مستقیم این گردش، گردش کالا صفر شده و کالا قابل حذف خواهد بود.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteMovement(mov.id)
+                        movementToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("حذف این گردش")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { movementToDelete = null }) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+    if (showClearAllConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirm = false },
+            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = AccountingCreditRed) },
+            title = { Text("پاکسازی کامل کاردکس کالا", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("آیا از پاکسازی تمام گردش‌های کاردکس کالای «${product.name}» اطمینان دارید؟ تمام رکوردهای گردش حذف شده و موجودی کالا به صفر تنظیم خواهد شد.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearAllMovements(product.id)
+                        showClearAllConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("پاکسازی کامل گردش‌ها")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("انصراف")
+                }
+            }
+        )
     }
 }
 

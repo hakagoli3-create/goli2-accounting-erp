@@ -36,18 +36,24 @@ class InventoryRepository(private val dao: InventoryDao) {
 
     /**
      * بررسی امکان حذف کالا:
-     * در صورت وجود فاکتور فعال یا گردش، حذف غیرمجاز است.
+     * در صورت وجود فاکتور یا گردش، حذف عادی غیرمجاز است تا با دکمه پاکسازی مدیریت شود.
      */
     suspend fun canDeleteProduct(productId: Long): Pair<Boolean, String> {
         val invoiceCount = dao.countInvoiceItemsForProduct(productId)
         if (invoiceCount > 0) {
-            return Pair(false, "امکان حذف این کالا وجود ندارد زیرا در $invoiceCount فاکتور ثبت شده و گردش مالی دارد.")
+            return Pair(false, "این کالا در $invoiceCount فاکتور ثبت شده است.")
         }
-        val activeMovements = dao.countActiveMovementsForProduct(productId)
+        val activeMovements = dao.countAllMovementsForProduct(productId)
         if (activeMovements > 0) {
-            return Pair(false, "امکان حذف این کالا وجود ندارد زیرا دارای $activeMovements گردش انبار (خرید، فروش یا حواله) است.")
+            return Pair(false, "این کالا دارای $activeMovements گردش در انبار است.")
         }
         return Pair(true, "")
+    }
+
+    suspend fun getProductDependenciesCount(productId: Long): Pair<Int, Int> {
+        val invoices = dao.countInvoiceItemsForProduct(productId)
+        val movements = dao.countAllMovementsForProduct(productId)
+        return Pair(invoices, movements)
     }
 
     suspend fun deleteProductSafely(product: ProductEntity): Pair<Boolean, String> {
@@ -61,6 +67,50 @@ class InventoryRepository(private val dao: InventoryDao) {
             Pair(true, "کالای «${product.name}» با موفقیت حذف گردید.")
         } catch (e: Exception) {
             Pair(false, "امکان حذف این کالا به دلیل داشتن وابستگی در سایر اسناد وجود ندارد: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * رفع بن‌بست حذف کالا: پاکسازی قطعی تمام تراکنش‌های گردش و اقلام فاکتور وابسته و حذف کالا
+     */
+    suspend fun forceDeleteProductAndMovements(product: ProductEntity): Pair<Boolean, String> {
+        return try {
+            dao.deleteMovementsForProduct(product.id)
+            dao.deleteInvoiceItemsForProduct(product.id)
+            dao.deleteProduct(product)
+            Pair(true, "کلیه گردش‌های کالا پاکسازی شده و کالای «${product.name}» با موفقیت حذف گردید.")
+        } catch (e: Exception) {
+            Pair(false, "خطا در پاکسازی و حذف کالا: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * حذف مستقیم یک ردیف گردش از کاردکس با بازگردانی متناسب موجودی لحظه‌ای کالا
+     */
+    suspend fun deleteSingleMovement(movementId: Long): Pair<Boolean, String> {
+        return try {
+            val mov = dao.getMovementById(movementId)
+                ?: return Pair(false, "گردش مورد نظر در کاردکس یافت نشد.")
+
+            // کسر اثر این تراکنش از موجودی لحظه‌ای تا فرمول موجودی دقیق باقی بماند
+            dao.adjustStock(mov.productId, -mov.quantitySecondary)
+            dao.deleteMovementById(movementId)
+            Pair(true, "گردش «${mov.referenceNumber}» با موفقیت از کاردکس حذف شد.")
+        } catch (e: Exception) {
+            Pair(false, "خطا در حذف گردش: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * پاکسازی کامل تمام گردش‌های کالا و صفر کردن موجودی
+     */
+    suspend fun clearAllMovementsForProduct(productId: Long): Pair<Boolean, String> {
+        return try {
+            dao.deleteMovementsForProduct(productId)
+            dao.setProductStock(productId, 0.0)
+            Pair(true, "تمامی گردش‌های این کالا پاکسازی گردید و موجودی آن صفر شد.")
+        } catch (e: Exception) {
+            Pair(false, "خطا در پاکسازی کاردکس: ${e.localizedMessage}")
         }
     }
 

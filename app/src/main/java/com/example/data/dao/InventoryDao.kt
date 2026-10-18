@@ -110,6 +110,24 @@ interface InventoryDao {
     @Query("SELECT * FROM inventory_movements WHERE documentType IN ('TRANSFER', 'TRANSFER_IN', 'TRANSFER_OUT') ORDER BY timestamp DESC")
     fun getTransferMovements(): Flow<List<InventoryMovementEntity>>
 
+    @Query("SELECT * FROM inventory_movements WHERE id = :id LIMIT 1")
+    suspend fun getMovementById(id: Long): InventoryMovementEntity?
+
+    @Query("DELETE FROM inventory_movements WHERE id = :id")
+    suspend fun deleteMovementById(id: Long): Int
+
+    @Query("DELETE FROM inventory_movements WHERE referenceNumber = :referenceNumber OR referenceNumber LIKE '%' || :referenceNumber || '%'")
+    suspend fun deleteMovementsByReference(referenceNumber: String): Int
+
+    @Query("DELETE FROM invoice_items WHERE productId = :productId")
+    suspend fun deleteInvoiceItemsForProduct(productId: Long): Int
+
+    @Query("UPDATE products SET currentStockInSecondary = :stock WHERE id = :productId")
+    suspend fun setProductStock(productId: Long, stock: Double)
+
+    @Query("SELECT COUNT(*) FROM inventory_movements WHERE productId = :productId")
+    suspend fun countAllMovementsForProduct(productId: Long): Int
+
     @Query("DELETE FROM inventory_movements WHERE productId = :productId")
     suspend fun deleteMovementsForProduct(productId: Long)
 }

@@ -485,14 +485,22 @@ class InvoiceRepository(
                 }
             }
 
-            // ۲. حذف ردیف‌های اقلام فاکتور ابتدا تا نقض کلید خارجی در دیتابیس رخ ندهد
+            // ۲. پاکسازی قطعی تمام گردش‌های انبار (Kardex) و اسناد معکوس (REV-INV) مربوط به این فاکتور جهت رفع رکوردهای یتیم (Orphan Removal)
+            try {
+                inventoryDao.deleteMovementsByReference(invoice.invoiceNumber)
+                inventoryDao.deleteMovementsByReference("REV-${invoice.invoiceNumber}")
+            } catch (e: Exception) {
+                android.util.Log.e("InvoiceRepository", "Error cleaning kardex movements for deleted invoice ${invoice.invoiceNumber}", e)
+            }
+
+            // ۳. حذف ردیف‌های اقلام فاکتور ابتدا تا نقض کلید خارجی در دیتابیس رخ ندهد
             try {
                 invoiceDao.deleteInvoiceItemsForInvoice(invoiceId)
             } catch (e: Exception) {
                 android.util.Log.e("InvoiceRepository", "Error deleting invoice items", e)
             }
 
-            // ۳. حذف خود سند فاکتور از دیتابیس
+            // ۴. حذف خود سند فاکتور از دیتابیس
             val rowsDeleted = try {
                 invoiceDao.deleteInvoiceById(invoiceId)
             } catch (e: Exception) {
