@@ -10,6 +10,8 @@ class PartyRepository(private val dao: PartyDao) {
     val allCustomers: Flow<List<PartyEntity>> = dao.getAllCustomers()
     val allSuppliers: Flow<List<PartyEntity>> = dao.getAllSuppliers()
     val overCreditLimitCount: Flow<Int> = dao.getOverCreditLimitCount()
+    val totalReceivables: Flow<Long> = dao.getTotalReceivables()
+    val totalPayables: Flow<Long> = dao.getTotalPayables()
 
     fun searchParties(query: String): Flow<List<PartyEntity>> = dao.searchParties(query)
 

@@ -37,6 +37,9 @@ class ExpenseAndIncomeRepository(
     val totalExpenses: Flow<Long?> =
         expenseAndIncomeDao.getTotalExpenses()
 
+    fun getTodayExpenses(today: String): Flow<Long> =
+        expenseAndIncomeDao.getTodayExpenses(today)
+
     fun getExpensesBetweenDates(startDate: String, endDate: String): Flow<List<ExpenseEntity>> =
         expenseAndIncomeDao.getExpensesBetweenDates(startDate, endDate)
 

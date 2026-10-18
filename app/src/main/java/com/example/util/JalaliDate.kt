@@ -47,6 +47,30 @@ data class JalaliDate(
         }
     }
 
+    fun getDayOfWeekName(): String {
+        val g = jalaliToGregorian(year, month, day)
+        val cal = Calendar.getInstance()
+        cal.set(g[0], g[1] - 1, g[2], 12, 0, 0)
+        return when (cal.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.SATURDAY -> "شنبه"
+            Calendar.SUNDAY -> "یکشنبه"
+            Calendar.MONDAY -> "دوشنبه"
+            Calendar.TUESDAY -> "سه‌شنبه"
+            Calendar.WEDNESDAY -> "چهارشنبه"
+            Calendar.THURSDAY -> "پنج‌شنبه"
+            Calendar.FRIDAY -> "جمعه"
+            else -> ""
+        }
+    }
+
+    fun getFormattedFullDate(): String {
+        val dayOfWeek = getDayOfWeekName()
+        val dayStr = NumberFormatUtils.toPersianDigits(day.toString())
+        val monthName = getMonthName()
+        val yearStr = NumberFormatUtils.toPersianDigits(year.toString())
+        return "$dayOfWeek، $dayStr $monthName $yearStr"
+    }
+
     fun addDays(days: Int): JalaliDate {
         val epoch = this.toEpochMillis()
         val newEpoch = epoch + (days * 86400000L)

@@ -44,4 +44,10 @@ interface PartyDao {
 
     @Query("SELECT COUNT(*) FROM parties WHERE creditLimit > 0 AND currentBalance > creditLimit")
     fun getOverCreditLimitCount(): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(currentBalance), 0) FROM parties WHERE currentBalance > 0")
+    fun getTotalReceivables(): Flow<Long>
+
+    @Query("SELECT COALESCE(SUM(ABS(currentBalance)), 0) FROM parties WHERE currentBalance < 0")
+    fun getTotalPayables(): Flow<Long>
 }

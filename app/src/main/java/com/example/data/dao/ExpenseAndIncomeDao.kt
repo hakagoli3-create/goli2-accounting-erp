@@ -62,6 +62,9 @@ interface ExpenseAndIncomeDao {
     @Query("SELECT SUM(amount) FROM expenses")
     fun getTotalExpenses(): Flow<Long?>
 
+    @Query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE jalaliDate = :today")
+    fun getTodayExpenses(today: String): Flow<Long>
+
     // --- Income Categories ---
     @Query("SELECT * FROM income_categories ORDER BY id ASC")
     fun getAllIncomeCategories(): Flow<List<IncomeCategoryEntity>>
