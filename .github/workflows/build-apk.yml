@@ -5,10 +5,6 @@ on:
     branches:
       - main
       - master
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
 
 concurrency:
@@ -39,13 +35,10 @@ jobs:
         run: |
           chmod +x ./gradlew
           
-          # Restore or generate debug.keystore
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
-              echo "Restoring debug.keystore from base64"
               base64 -d debug.keystore.base64 > debug.keystore
             else
-              echo "Generating fresh debug.keystore"
               keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
@@ -54,9 +47,7 @@ jobs:
             cp .env.example .env 2>/dev/null || touch .env
           fi
 
-          # Ensure google-services.json exists
           if [ ! -f app/google-services.json ]; then
-            echo "Creating fallback app/google-services.json"
             cat << 'EOF' > app/google-services.json
           {
             "project_info": {
@@ -90,39 +81,18 @@ jobs:
           EOF
           fi
 
-      - name: Run Tests
-        env:
-          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
-        run: ./gradlew testDebugUnitTest --no-daemon
-
       - name: Build Debug APK
         env:
           JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare Direct APK Output
-        run: |
-          mkdir -p build-output
-          cp app/build/outputs/apk/debug/app-debug.apk build-output/GoliAccounting.apk
-          echo "APK successfully generated: build-output/GoliAccounting.apk"
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release and Upload APK
+        uses: ncipollo/release-action@v1
         with:
-          name: GoliAccounting-APK
-          path: build-output/GoliAccounting.apk
-          retention-days: 30
-          compression-level: 0
-
-      - name: Publish Direct APK to GitHub Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: "Goli Accounting Latest APK"
-          body: "Direct download of Goli Accounting Android APK (ready-to-install without unzipping)."
-          draft: false
-          prerelease: false
-          files: build-output/GoliAccounting.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: "app/build/outputs/apk/debug/app-debug.apk"
+          tag: "v1.0.${{ github.run_number }}"
+          name: "Goli Accounting App v1.0.${{ github.run_number }}"
+          body: "دانلود مستقیم فایل APK برنامه حسابداری گلی (بدون نیاز به آنزیپ)"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+          
