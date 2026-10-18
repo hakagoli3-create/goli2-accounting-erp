@@ -516,6 +516,6 @@ class InvoiceRepository(
 
     suspend fun generateNextInvoiceNumber(): String {
         val maxId = invoiceDao.getMaxInvoiceId()
-        return "INV-${1000 + maxId + 1}"
+        return "فاکتور-${1000 + maxId + 1}"
     }
 }

@@ -32,11 +32,17 @@ class PartyViewModel(
         _searchQuery,
         _selectedTab
     ) { parties, query, tab ->
+        val q = query.trim()
         parties.filter { p ->
-            val matchesQuery = query.isBlank() ||
-                    p.name.contains(query, ignoreCase = true) ||
-                    p.mobile.contains(query, ignoreCase = true) ||
-                    p.code.contains(query, ignoreCase = true)
+            val matchesQuery = q.isBlank() ||
+                    p.name.contains(q, ignoreCase = true) ||
+                    p.companyName.contains(q, ignoreCase = true) ||
+                    p.mobile.contains(q, ignoreCase = true) ||
+                    p.phone.contains(q, ignoreCase = true) ||
+                    p.code.contains(q, ignoreCase = true) ||
+                    p.nationalCode.contains(q, ignoreCase = true) ||
+                    com.example.util.NumberFormatUtils.toPersianDigits(p.mobile).contains(q) ||
+                    com.example.util.NumberFormatUtils.toPersianDigits(p.code).contains(q)
 
             val matchesTab = when (tab) {
                 0 -> p.partyType in listOf("CUSTOMER", "BOTH")

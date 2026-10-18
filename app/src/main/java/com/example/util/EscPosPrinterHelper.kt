@@ -35,6 +35,8 @@ object EscPosPrinterHelper {
         val taxAmount: Long,
         val totalAmount: Long,
         val paymentMethod: String,
+        val directExpenseAmount: Long = 0L,
+        val directExpenseType: String = "",
         val note: String = ""
     )
 
@@ -93,11 +95,15 @@ object EscPosPrinterHelper {
         if (invoice.taxAmount > 0) {
             stream.write("مالیات ارزش افزوده: ${NumberFormatUtils.formatPrice(invoice.taxAmount)}\n".toByteArray(Charset.forName("UTF-8")))
         }
+        if (invoice.directExpenseAmount > 0) {
+            val expLabel = if (invoice.directExpenseType.isNotBlank()) "هزینه مستقیم (${invoice.directExpenseType})" else "هزینه مستقیم/جانبی"
+            stream.write("$expLabel: ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)}\n".toByteArray(Charset.forName("UTF-8")))
+        }
 
         stream.write(CMD_BOLD_ON)
         stream.write("مبلغ نهایی: ${NumberFormatUtils.formatPrice(invoice.totalAmount)}\n".toByteArray(Charset.forName("UTF-8")))
         stream.write(CMD_BOLD_OFF)
-        stream.write("روش پرداخت: ${invoice.paymentMethod}\n".toByteArray(Charset.forName("UTF-8")))
+        stream.write("روش پرداخت: ${NumberFormatUtils.formatPaymentType(invoice.paymentMethod)}\n".toByteArray(Charset.forName("UTF-8")))
 
         if (invoice.note.isNotBlank()) {
             stream.write("یادداشت: ${invoice.note}\n".toByteArray(Charset.forName("UTF-8")))
@@ -122,11 +128,11 @@ object EscPosPrinterHelper {
         sb.appendLine("            مدیریت حسابداری گلی           ")
         sb.appendLine("             فاکتور رسمی فروش             ")
         sb.appendLine("==========================================")
-        sb.appendLine("شماره فاکتور: ${invoice.invoiceNumber}")
-        sb.appendLine("تاریخ صدور : ${invoice.invoiceDate}")
+        sb.appendLine("شماره فاکتور: ${NumberFormatUtils.formatInvoiceNumber(invoice.invoiceNumber)}")
+        sb.appendLine("تاریخ صدور : ${NumberFormatUtils.toPersianDigits(invoice.invoiceDate)}")
         sb.appendLine("خریدار     : ${invoice.customerName}")
         if (invoice.customerPhone.isNotBlank()) {
-            sb.appendLine("شماره تماس : ${invoice.customerPhone}")
+            sb.appendLine("شماره تماس : ${NumberFormatUtils.toPersianDigits(invoice.customerPhone)}")
         }
         sb.appendLine("انبار      : ${invoice.warehouseName}")
         sb.appendLine("------------------------------------------")
@@ -150,10 +156,14 @@ object EscPosPrinterHelper {
         if (invoice.taxAmount > 0) {
             sb.appendLine("مالیات (۱۰٪) : ${NumberFormatUtils.formatPrice(invoice.taxAmount)}")
         }
+        if (invoice.directExpenseAmount > 0) {
+            val expTitle = if (invoice.directExpenseType.isNotBlank()) "هزینه مستقیم (${invoice.directExpenseType})" else "هزینه‌های مستقیم و جانبی"
+            sb.appendLine("$expTitle : ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)}")
+        }
         sb.appendLine("------------------------------------------")
         sb.appendLine("مبلغ قابل پرداخت: ${NumberFormatUtils.formatPrice(invoice.totalAmount)}")
         sb.appendLine("حروف: ${NumberFormatUtils.numberToPersianWords(invoice.totalAmount)} تومان")
-        sb.appendLine("روش تسویه    : ${invoice.paymentMethod}")
+        sb.appendLine("روش تسویه    : ${NumberFormatUtils.formatPaymentType(invoice.paymentMethod)}")
         if (invoice.note.isNotBlank()) {
             sb.appendLine("توضیحات      : ${invoice.note}")
         }

@@ -761,6 +761,23 @@ private fun TransfersTabContent(
 ) {
     val productsMap = remember(products) { products.associateBy { it.id } }
     val warehousesMap = remember(warehouses) { warehouses.associateBy { it.id } }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredTransfers = remember(transfers, searchQuery, productsMap, warehousesMap) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) transfers
+        else {
+            transfers.filter { tr ->
+                val prod = productsMap[tr.productId]
+                val wh = warehousesMap[tr.warehouseId]
+                tr.referenceNumber.contains(q, ignoreCase = true) ||
+                        (prod?.name?.contains(q, ignoreCase = true) == true) ||
+                        (wh?.name?.contains(q, ignoreCase = true) == true) ||
+                        tr.jalaliDate.contains(q) ||
+                        tr.description.contains(q, ignoreCase = true)
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -804,7 +821,27 @@ private fun TransfersTabContent(
             }
         }
 
-        if (transfers.isEmpty()) {
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("جستجوی شماره حواله، نام کالا، انبار...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "پاک کردن")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("search_transfer_input")
+            )
+        }
+
+        if (filteredTransfers.isEmpty()) {
             item {
                 Box(
                     modifier = Modifier
@@ -812,11 +849,11 @@ private fun TransfersTabContent(
                         .height(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("هنوز هیچ حواله انتقالی ثبت نشده است.")
+                    Text(if (transfers.isEmpty()) "هنوز هیچ حواله انتقالی ثبت نشده است." else "هیچ حواله‌ای مطابق با «$searchQuery» یافت نشد.")
                 }
             }
         } else {
-            items(transfers) { tr ->
+            items(filteredTransfers) { tr ->
                 val prod = productsMap[tr.productId]
                 val wh = warehousesMap[tr.warehouseId]
                 val isEntry = tr.quantitySecondary > 0
@@ -881,10 +918,25 @@ private fun CardexTabContent(
     onDeleteMovement: (Long) -> Unit,
     onClearAllMovements: (Long) -> Unit
 ) {
-    val movementsToShow = if (selectedProduct != null) productMovements else recentMovements
     val productsMap = remember(products) { products.associateBy { it.id } }
+    var cardexSearchQuery by remember { mutableStateOf("") }
     var movementToDelete by remember { mutableStateOf<InventoryMovementEntity?>(null) }
     var showClearAllConfirm by remember { mutableStateOf(false) }
+
+    val rawMovements = if (selectedProduct != null) productMovements else recentMovements
+    val movementsToShow = remember(rawMovements, cardexSearchQuery, productsMap) {
+        val q = cardexSearchQuery.trim()
+        if (q.isBlank()) rawMovements
+        else {
+            rawMovements.filter { mov ->
+                val prod = productsMap[mov.productId]
+                mov.referenceNumber.contains(q, ignoreCase = true) ||
+                        (prod?.name?.contains(q, ignoreCase = true) == true) ||
+                        mov.description.contains(q, ignoreCase = true) ||
+                        mov.jalaliDate.contains(q)
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -944,6 +996,26 @@ private fun CardexTabContent(
             }
         }
 
+        item {
+            OutlinedTextField(
+                value = cardexSearchQuery,
+                onValueChange = { cardexSearchQuery = it },
+                label = { Text("جستجوی شماره سند، شرح یا کالای گردش انبار...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (cardexSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { cardexSearchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "پاک کردن")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("search_cardex_input")
+            )
+        }
+
         if (movementsToShow.isEmpty()) {
             item {
                 Box(
@@ -952,7 +1024,7 @@ private fun CardexTabContent(
                         .height(180.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("هیچ گردشی برای نمایش وجود ندارد.")
+                    Text(if (rawMovements.isEmpty()) "هیچ گردشی برای نمایش وجود ندارد." else "هیچ سندی مطابق با «$cardexSearchQuery» یافت نشد.")
                 }
             }
         } else {

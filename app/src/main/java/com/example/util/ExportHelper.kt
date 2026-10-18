@@ -145,7 +145,8 @@ object ExportHelper {
             textPaint.isFakeBoldText = false
             drawTextRtl(canvas, textPaint, storeProfile.name, (pageWidth - 40).toFloat(), 70f)
 
-            val metaText = "شماره: ${invoice.invoiceNumber}  |  تاریخ: ${invoice.jalaliDate}"
+            val formattedInvNum = NumberFormatUtils.formatInvoiceNumber(invoice.invoiceNumber)
+            val metaText = "شماره: $formattedInvNum  |  تاریخ: ${invoice.jalaliDate}"
             textPaint.textSize = 9f
             canvas.drawText(metaText, 35f, 55f, textPaint)
 
@@ -169,7 +170,8 @@ object ExportHelper {
             drawTextRtl(canvas, textPaint, "آدرس: ${storeProfile.address} | شناسه ملی: ${storeProfile.nationalCode}", (pageWidth - 30).toFloat(), y + 33f)
 
             textPaint.isFakeBoldText = true
-            drawTextRtl(canvas, textPaint, "خریدار: ${invoice.partyName} | تماس: ${invoice.partyPhone.ifEmpty { "نقدی" }}", (pageWidth - 30).toFloat(), y + 50f)
+            val buyerPayDesc = NumberFormatUtils.formatPaymentType(invoice.paymentType)
+            drawTextRtl(canvas, textPaint, "خریدار: ${invoice.partyName} | تماس: ${invoice.partyPhone.ifEmpty { "نقدی" }} | تسویه: $buyerPayDesc", (pageWidth - 30).toFloat(), y + 50f)
 
             y += 80f
 
@@ -203,8 +205,8 @@ object ExportHelper {
                 drawTextRtl(canvas, textPaint, item.productName.take(30), 490f, y + 14f)
                 drawTextRtl(canvas, textPaint, NumberFormatUtils.toPersianDigits(item.quantity.toString()), 310f, y + 14f)
                 drawTextRtl(canvas, textPaint, item.unitName, 260f, y + 14f)
-                drawTextRtl(canvas, textPaint, NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(item.unitPrice)), 195f, y + 14f)
-                drawTextRtl(canvas, textPaint, NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(item.totalPrice)), 90f, y + 14f)
+                drawTextRtl(canvas, textPaint, NumberFormatUtils.formatPriceOnlyNumber(item.unitPrice), 195f, y + 14f)
+                drawTextRtl(canvas, textPaint, NumberFormatUtils.formatPriceOnlyNumber(item.totalPrice), 90f, y + 14f)
 
                 y += 20f
             }
@@ -214,23 +216,39 @@ object ExportHelper {
             canvas.drawLine(20f, y, (pageWidth - 20).toFloat(), y, paint)
             y += 15f
 
-            // Totals Box
+            // Totals Box (calculating height dynamically)
+            var totalsBoxHeight = 80f
+            if (invoice.directExpenseAmount > 0) totalsBoxHeight += 18f
             paint.color = Color.rgb(245, 240, 230)
-            canvas.drawRect(250f, y, (pageWidth - 20).toFloat(), y + 80f, paint)
+            canvas.drawRect(250f, y, (pageWidth - 20).toFloat(), y + totalsBoxHeight, paint)
 
             textPaint.textSize = 9f
-            drawTextRtl(canvas, textPaint, "جمع اقلام: ${NumberFormatUtils.formatPrice(invoice.subtotalAmount)}", 560f, y + 18f)
-            drawTextRtl(canvas, textPaint, "تخفیف: ${NumberFormatUtils.formatPrice(invoice.discountAmount)}", 560f, y + 36f)
-            drawTextRtl(canvas, textPaint, "مالیات ارزش افزوده: ${NumberFormatUtils.formatPrice(invoice.taxAmount)}", 560f, y + 54f)
+            var curY = y + 18f
+            drawTextRtl(canvas, textPaint, "جمع اقلام: ${NumberFormatUtils.formatPrice(invoice.subtotalAmount)}", 560f, curY)
+            if (invoice.discountAmount > 0) {
+                curY += 18f
+                drawTextRtl(canvas, textPaint, "تخفیف: ${NumberFormatUtils.formatPrice(invoice.discountAmount)}", 560f, curY)
+            }
+            if (invoice.taxAmount > 0) {
+                curY += 18f
+                drawTextRtl(canvas, textPaint, "مالیات ارزش افزوده (۱۰٪): ${NumberFormatUtils.formatPrice(invoice.taxAmount)}", 560f, curY)
+            }
+            if (invoice.directExpenseAmount > 0) {
+                curY += 18f
+                val expLabel = if (invoice.directExpenseType.isNotBlank()) "هزینه‌های مستقیم (${invoice.directExpenseType}):" else "هزینه‌های مستقیم و جانبی:"
+                drawTextRtl(canvas, textPaint, "$expLabel ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)}", 560f, curY)
+            }
 
+            curY += 20f
             textPaint.isFakeBoldText = true
             textPaint.textSize = 10.5f
             textPaint.color = Color.rgb(180, 20, 20)
-            drawTextRtl(canvas, textPaint, "مبلغ نهایی قابل پرداخت: ${NumberFormatUtils.formatPrice(invoice.totalAmount)}", 560f, y + 74f)
+            drawTextRtl(canvas, textPaint, "مبلغ نهایی قابل پرداخت: ${NumberFormatUtils.formatPrice(invoice.totalAmount)}", 560f, curY)
 
+            curY += 18f
             textPaint.textSize = 9f
             textPaint.color = Color.rgb(30, 70, 140)
-            drawTextRtl(canvas, textPaint, "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(invoice.totalAmount)} تومان", 560f, y + 92f)
+            drawTextRtl(canvas, textPaint, "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(invoice.totalAmount)} تومان", 560f, curY)
 
             // Settlement Details
             textPaint.color = Color.BLACK
@@ -242,7 +260,7 @@ object ExportHelper {
                 "CREDIT" -> "فروش نسیه و بدهکار شدن طرف حساب"
                 "CHEQUE" -> "تسویه با چک صیادی"
                 "MIXED" -> "تسویه ترکیبی (نقد: ${NumberFormatUtils.formatPrice(invoice.cashAmount)} | پوز: ${NumberFormatUtils.formatPrice(invoice.posAmount)} | چک: ${NumberFormatUtils.formatPrice(invoice.chequeAmount)} | نسیه: ${NumberFormatUtils.formatPrice(invoice.creditAmount)})"
-                else -> invoice.paymentType
+                else -> NumberFormatUtils.formatPaymentType(invoice.paymentType)
             }
             drawTextRtl(canvas, textPaint, "وضعیت تسویه: $payModeDesc", 230f, y + 25f)
             drawTextRtl(canvas, textPaint, "شماره کارت جهت واریز: ${storeProfile.defaultBankCard}", 230f, y + 45f)
@@ -294,7 +312,7 @@ object ExportHelper {
             sb.append("تاریخ صدور,${invoice.jalaliDate}\n")
             sb.append("نام خریدار,${invoice.partyName}\n")
             sb.append("شماره تماس خریدار,${invoice.partyPhone}\n")
-            sb.append("نوع تسویه,${invoice.paymentType}\n")
+            sb.append("نوع تسویه,${NumberFormatUtils.formatPaymentType(invoice.paymentType)}\n")
             sb.append("\n")
             sb.append("ردیف,کد کالا,شرح کالا,تعداد,واحد,فی به تومان,تخفیف,مبلغ کل (تومان)\n")
 
@@ -311,8 +329,9 @@ object ExportHelper {
 
             sb.append("\n")
             sb.append("جمع اقلام,,,,,${invoice.subtotalAmount}\n")
-            sb.append("تخفیف کلی,,,,,${invoice.discountAmount}\n")
-            sb.append("مالیات ارزش افزوده,,,,,${invoice.taxAmount}\n")
+            if (invoice.discountAmount > 0) sb.append("تخفیف کلی,,,,,${invoice.discountAmount}\n")
+            if (invoice.taxAmount > 0) sb.append("مالیات ارزش افزوده,,,,,${invoice.taxAmount}\n")
+            if (invoice.directExpenseAmount > 0) sb.append("هزینه مستقیم (${invoice.directExpenseType}),,,,,${invoice.directExpenseAmount}\n")
             sb.append("مبلغ نهایی قابل پرداخت,,,,,${invoice.totalAmount}\n")
             sb.append("پرداخت نقد,,,,,${invoice.cashAmount}\n")
             sb.append("پرداخت پوز,,,,,${invoice.posAmount}\n")

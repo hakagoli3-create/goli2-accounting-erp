@@ -82,7 +82,7 @@ class ExampleUnitTest {
 
         val textReceipt = EscPosPrinterHelper.buildPlainTextReceipt(printable)
         assertTrue(textReceipt.contains("مدیریت حسابداری گلی"))
-        assertTrue(textReceipt.contains("INV-1001"))
+        assertTrue(textReceipt.contains(com.example.util.NumberFormatUtils.formatInvoiceNumber("INV-1001")))
         assertTrue(textReceipt.contains("روغن زیتون ۱ لیتری"))
     }
 

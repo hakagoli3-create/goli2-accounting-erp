@@ -17,20 +17,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
+import com.example.ui.components.QuickAddPartyDialog
+import com.example.ui.components.QuickAddOrEditProductDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -241,6 +251,18 @@ fun InvoiceScreen(
                         } else {
                             showSettlementDialog = true
                         }
+                    },
+                    onQuickAddParty = { newParty ->
+                        viewModel.quickAddParty(newParty) { created ->
+                            Toast.makeText(context, "طرف‌حساب «${created.name}» با موفقیت افزوده و انتخاب شد.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onQuickAddOrUpdateProduct = { prod ->
+                        viewModel.quickAddOrUpdateProduct(prod) { saved ->
+                            val isNew = prod.id == 0L
+                            val msg = if (isNew) "کالای «${saved.name}» با موفقیت ثبت و انتخاب شد." else "کالای «${saved.name}» بروزرسانی شد."
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
             }
@@ -385,16 +407,34 @@ private fun InvoiceListContent(
 ) {
     val context = LocalContext.current
     var filterType by remember { mutableStateOf("ALL") }
+    var searchQuery by remember { mutableStateOf("") }
     var voidingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
     var deletingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
 
-    val filteredInvoices = remember(invoices, filterType) {
-        when (filterType) {
+    val filteredInvoices = remember(invoices, filterType, searchQuery) {
+        val q = searchQuery.trim()
+        val typeFiltered = when (filterType) {
             "SALE" -> invoices.filter { it.invoice.invoiceType in listOf("SALE", "POS_SALE") }
             "PURCHASE" -> invoices.filter { it.invoice.invoiceType == "PURCHASE" }
             "RETURN_SALE" -> invoices.filter { it.invoice.invoiceType == "RETURN_SALE" }
             "RETURN_PURCHASE" -> invoices.filter { it.invoice.invoiceType == "RETURN_PURCHASE" }
             else -> invoices
+        }
+        if (q.isBlank()) {
+            typeFiltered
+        } else {
+            typeFiltered.filter { invWithItems ->
+                val inv = invWithItems.invoice
+                inv.invoiceNumber.contains(q, ignoreCase = true) ||
+                        NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber).contains(q, ignoreCase = true) ||
+                        inv.partyName.contains(q, ignoreCase = true) ||
+                        inv.partyPhone.contains(q, ignoreCase = true) ||
+                        NumberFormatUtils.toPersianDigits(inv.partyPhone).contains(q) ||
+                        inv.jalaliDate.contains(q) ||
+                        NumberFormatUtils.toPersianDigits(inv.jalaliDate).contains(q) ||
+                        NumberFormatUtils.formatPaymentType(inv.paymentType).contains(q, ignoreCase = true) ||
+                        invWithItems.items.any { it.productName.contains(q, ignoreCase = true) }
+            }
         }
     }
 
@@ -447,6 +487,28 @@ private fun InvoiceListContent(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            // باکس جستجوی سریع فاکتورها بر اساس شماره فاکتور، نام طرف حساب، کالا یا تلفن
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("جستجوی شماره فاکتور، طرف حساب، کالا یا تلفن...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "پاک کردن")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("invoice_search_input")
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // فیلتر انواع فاکتورها (خرید، فروش، مرجوعی)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -480,6 +542,19 @@ private fun InvoiceListContent(
             }
         }
 
+        if (filteredInvoices.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("هیچ فاکتوری مطابق با جستجوی «$searchQuery» یافت نشد.")
+                }
+            }
+        }
+
         items(filteredInvoices) { inv ->
             val invoice = inv.invoice
             val isVoid = invoice.status == "VOID"
@@ -500,7 +575,8 @@ private fun InvoiceListContent(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onOpenDetails(inv) },
+                    .clickable { onOpenDetails(inv) }
+                    .testTag("invoice_card_${invoice.id}"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isVoid) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
@@ -515,7 +591,7 @@ private fun InvoiceListContent(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = invoice.invoiceNumber,
+                                text = NumberFormatUtils.formatInvoiceNumber(invoice.invoiceNumber),
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -560,15 +636,17 @@ private fun InvoiceListContent(
 
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "طرف حساب: ${invoice.partyName} | تاریخ: ${invoice.jalaliDate} | تسویه: ${invoice.paymentType}",
+                        text = "طرف حساب: ${invoice.partyName} | تاریخ: ${NumberFormatUtils.toPersianDigits(invoice.jalaliDate)} | تسویه: ${NumberFormatUtils.formatPaymentType(invoice.paymentType)}",
                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp)
                     )
 
                     if (invoice.directExpenseAmount > 0) {
                         Spacer(modifier = Modifier.height(2.dp))
+                        val expLabel = if (invoice.directExpenseType.isNotBlank()) "هزینه مستقیم (${invoice.directExpenseType}):" else "هزینه مستقیم (کرایه حمل):"
                         Text(
-                            text = "هزینه مستقیم (${invoice.directExpenseType}): ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)} تومان",
+                            text = "$expLabel ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)} تومان",
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             color = PersianGold
                         )
                     }
@@ -728,11 +806,15 @@ private fun InvoiceEditorContent(
     onToggleTax: (Boolean) -> Unit,
     onDirectExpenseChange: (Long, String) -> Unit,
     onCancelEditing: () -> Unit,
-    onOpenSettlement: () -> Unit
+    onOpenSettlement: () -> Unit,
+    onQuickAddParty: (PartyEntity) -> Unit,
+    onQuickAddOrUpdateProduct: (ProductEntity) -> Unit
 ) {
     var partyMenuExpanded by remember { mutableStateOf(false) }
     var productMenuExpanded by remember { mutableStateOf(false) }
     var selectedProductToAdd by remember { mutableStateOf<ProductEntity?>(null) }
+    var showQuickAddPartyDialog by remember { mutableStateOf(false) }
+    var showQuickAddProductDialog by remember { mutableStateOf(false) }
     var usePrimaryUnit by remember { mutableStateOf(true) } // کارتن vs عدد
     var discountText by remember { mutableStateOf(if (discount > 0) discount.toString() else "") }
     var directExpenseAmtText by remember { mutableStateOf(if (directExpenseAmount > 0) directExpenseAmount.toString() else "") }
@@ -875,11 +957,25 @@ private fun InvoiceEditorContent(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "طرف حساب: $partyLabel",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "طرف حساب: $partyLabel",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        TextButton(
+                            onClick = { showQuickAddPartyDialog = true },
+                            modifier = Modifier.testTag("quick_add_party_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("+ افزودن طرف حساب جدید", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     val availableParties = remember(partyList, selectedParty) {
                         if (selectedParty != null && partyList.none { it.id == selectedParty.id }) {
@@ -1015,11 +1111,29 @@ private fun InvoiceEditorContent(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "افزودن قلم به فاکتور",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "افزودن قلم به فاکتور",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        TextButton(
+                            onClick = { showQuickAddProductDialog = true },
+                            modifier = Modifier.testTag("quick_add_product_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.AddBox, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selectedProductToAdd != null) "ویرایش سریع کالا" else "+ افزودن سریع کالا",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     ExposedDropdownMenuBox(
                         expanded = productMenuExpanded,
@@ -1229,5 +1343,28 @@ private fun InvoiceEditorContent(
                 }
             }
         }
+    }
+
+    if (showQuickAddPartyDialog) {
+        QuickAddPartyDialog(
+            initialType = if (isPurchase) "SUPPLIER" else "CUSTOMER",
+            onDismiss = { showQuickAddPartyDialog = false },
+            onConfirm = { newParty ->
+                showQuickAddPartyDialog = false
+                onQuickAddParty(newParty)
+            }
+        )
+    }
+
+    if (showQuickAddProductDialog) {
+        QuickAddOrEditProductDialog(
+            existingProduct = selectedProductToAdd,
+            onDismiss = { showQuickAddProductDialog = false },
+            onConfirm = { product ->
+                showQuickAddProductDialog = false
+                onQuickAddOrUpdateProduct(product)
+                selectedProductToAdd = product
+            }
+        )
     }
 }

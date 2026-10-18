@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.Button
@@ -343,21 +344,54 @@ private fun ChequesContent(
     onDeleteCheque: (ChequeEntity) -> Unit = {}
 ) {
     var filterType by remember { mutableStateOf("ALL") }
+    var searchQuery by remember { mutableStateOf("") }
 
     val displayedCheques = cheques.filter { ch ->
-        when (filterType) {
+        val q = searchQuery.trim()
+        val matchesType = when (filterType) {
             "RECEIVABLE" -> ch.type == "RECEIVABLE"
             "PAYABLE" -> ch.type == "PAYABLE"
             "DUE_ALERTS" -> ch.status == "NORMAL" && (ch.isOverdue() || ch.isDueToday() || ch.daysUntilDue() in 0..7)
             else -> true
         }
+        val matchesSearch = q.isBlank() ||
+                ch.chequeNumber.contains(q, ignoreCase = true) ||
+                ch.sayadNumber.contains(q, ignoreCase = true) ||
+                ch.partyName.contains(q, ignoreCase = true) ||
+                ch.bankName.contains(q, ignoreCase = true) ||
+                ch.branch.contains(q, ignoreCase = true) ||
+                ch.notes.contains(q, ignoreCase = true) ||
+                NumberFormatUtils.toPersianDigits(ch.chequeNumber).contains(q) ||
+                NumberFormatUtils.toPersianDigits(ch.sayadNumber).contains(q)
+
+        matchesType && matchesSearch
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // فیلد جستجوی سریع چک‌ها
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("جستجوی شماره چک، شناسه صیادی، طرف‌حساب، نام بانک...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "پاک کردن")
+                    }
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .testTag("search_cheques_input")
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(
@@ -388,7 +422,7 @@ private fun ChequesContent(
 
         if (displayedCheques.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("هیچ چکی با این فیلتر یافت نشد.")
+                Text(if (searchQuery.isNotBlank()) "هیچ چکی با مشخصات «$searchQuery» یافت نشد." else "هیچ چکی با این فیلتر یافت نشد.")
             }
             return
         }

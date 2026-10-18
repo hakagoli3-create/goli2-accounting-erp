@@ -71,6 +71,61 @@ object NumberFormatUtils {
         }
     }
 
+    /**
+     * تبدیل شماره فاکتورهای انگلیسی مانند INV-1001 یا INV_1001 به قالب شکیل فارسی: «فاکتور-۱۰۰۱»
+     */
+    fun formatInvoiceNumber(number: String): String {
+        if (number.isBlank()) return "فاکتور"
+        val cleaned = number
+            .replace("INV-", "فاکتور-")
+            .replace("INV_", "فاکتور-")
+            .replace("inv-", "فاکتور-")
+            .replace("inv_", "فاکتور-")
+            .replace("PRO-", "پیش‌فاکتور-")
+            .replace("RET-", "مرجوعی-")
+        return toPersianDigits(cleaned)
+    }
+
+    /**
+     * تبدیل کدهای روش تسویه انگلیسی به متن فارسی روان
+     */
+    fun formatPaymentType(paymentType: String): String {
+        return when (paymentType.trim().uppercase()) {
+            "CASH" -> "نقدی"
+            "POS" -> "کارتخوان بانکی (POS)"
+            "CREDIT" -> "نسیه (حساب مشتری)"
+            "CHEQUE" -> "چک صیادی"
+            "MIXED" -> "ترکیبی (چندحالته)"
+            else -> paymentType
+        }
+    }
+
+    /**
+     * تبدیل نوع فاکتور به فارسی
+     */
+    fun formatInvoiceType(invoiceType: String): String {
+        return when (invoiceType.trim().uppercase()) {
+            "SALE" -> "فاکتور فروش"
+            "PURCHASE" -> "فاکتور خرید"
+            "RETURN_SALE" -> "برگشت از فروش"
+            "RETURN_PURCHASE" -> "برگشت از خرید"
+            "POS_SALE" -> "فروش صندوق (POS)"
+            else -> invoiceType
+        }
+    }
+
+    /**
+     * تبدیل وضعیت فاکتور به فارسی
+     */
+    fun formatInvoiceStatus(status: String): String {
+        return when (status.trim().uppercase()) {
+            "FINAL" -> "ثبت قطعی"
+            "PROFORMA" -> "پیش‌فاکتور"
+            "VOID" -> "ابطال شده"
+            else -> status
+        }
+    }
+
     private val ones = arrayOf("", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه")
     private val teens = arrayOf(
         "ده", "یازده", "دوازده", "سیزده", "چهارده", "پانزده", "شانزده", "هفده", "هجده", "نوزده"

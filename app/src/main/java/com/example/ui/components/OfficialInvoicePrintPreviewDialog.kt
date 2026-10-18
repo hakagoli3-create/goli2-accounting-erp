@@ -310,13 +310,13 @@ fun OfficialInvoicePrintPreviewDialog(
 
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text(
-                                            text = "شماره: ${inv.invoiceNumber}",
+                                            text = "شماره: ${NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber)}",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp,
                                             color = Color.White
                                         )
                                         Text(
-                                            text = "تاریخ: ${inv.jalaliDate}",
+                                            text = "تاریخ: ${NumberFormatUtils.toPersianDigits(inv.jalaliDate)}",
                                             fontSize = 11.sp,
                                             color = Color.White.copy(alpha = 0.8f)
                                         )
@@ -348,8 +348,8 @@ fun OfficialInvoicePrintPreviewDialog(
                                     Text("مشخصات فروشنده", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                     Text("نام: ${storeProfile.name}", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                                    Text("شناسه ملی: ${storeProfile.nationalCode.ifBlank { "۱۰۱۰۲۳۴۵۶۷۸" }}", fontSize = 10.sp)
-                                    Text("تلفن: ${storeProfile.phone}", fontSize = 10.sp)
+                                    Text("شناسه ملی: ${NumberFormatUtils.toPersianDigits(storeProfile.nationalCode.ifBlank { "۱۰۱۰۲۳۴۵۶۷۸" })}", fontSize = 10.sp)
+                                    Text("تلفن: ${NumberFormatUtils.toPersianDigits(storeProfile.phone)}", fontSize = 10.sp)
                                     Text("نشانی: ${storeProfile.address}", fontSize = 9.sp, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
@@ -364,9 +364,9 @@ fun OfficialInvoicePrintPreviewDialog(
                                     Text("مشخصات خریدار / طرف‌حساب", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                     Text("نام: ${inv.partyName}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    Text("کد/شناسه: ${if ((inv.partyId ?: 0L) > 0) "CUS-${inv.partyId}" else "مشتری نقدی"}", fontSize = 10.sp)
-                                    Text("شماره تماس: ${inv.partyPhone.ifEmpty { "نقدی" }}", fontSize = 10.sp)
-                                    Text("نوع تسویه: ${inv.paymentType}", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("کد طرف‌حساب: ${if ((inv.partyId ?: 0L) > 0) NumberFormatUtils.toPersianDigits(inv.partyId.toString()) else "مشتری نقدی"}", fontSize = 10.sp)
+                                    Text("شماره تماس: ${NumberFormatUtils.toPersianDigits(inv.partyPhone.ifEmpty { "نقدی" })}", fontSize = 10.sp)
+                                    Text("نوع تسویه: ${NumberFormatUtils.formatPaymentType(inv.paymentType)}", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -461,20 +461,30 @@ fun OfficialInvoicePrintPreviewDialog(
                                     }
                                 }
                                 if (inv.directExpenseAmount > 0) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("هزینه جانبی (${inv.directExpenseType}):", fontSize = 11.sp)
-                                        Text(NumberFormatUtils.formatPrice(inv.directExpenseAmount), fontSize = 11.sp, color = PersianGold)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(PersianGold.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val expTitle = if (inv.directExpenseType.isNotBlank()) "هزینه‌های مستقیم و جانبی (${inv.directExpenseType}):" else "هزینه‌های مستقیم و جانبی (کرایه حمل / باربری):"
+                                        Text(expTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PersianGold)
+                                        Text(NumberFormatUtils.formatPrice(inv.directExpenseAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PersianGold)
                                     }
+                                    Spacer(modifier = Modifier.height(4.dp))
                                 }
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("مبلغ نهایی قابل پرداخت:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                     Text(
-                                        text = NumberFormatUtils.formatPrice(inv.totalAmount),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                         text = NumberFormatUtils.formatPrice(inv.totalAmount),
+                                         fontWeight = FontWeight.Bold,
+                                         fontSize = 14.sp,
+                                         color = MaterialTheme.colorScheme.primary
+                                     )
                                 }
 
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -499,7 +509,7 @@ fun OfficialInvoicePrintPreviewDialog(
 
                                 // Settlement Summary
                                 val payDesc = buildString {
-                                    append("شیوه تسویه: ${inv.paymentType}")
+                                    append("شیوه تسویه: ${NumberFormatUtils.formatPaymentType(inv.paymentType)}")
                                     if (inv.cashAmount > 0) append(" | نقد: ${NumberFormatUtils.formatPrice(inv.cashAmount)}")
                                     if (inv.posAmount > 0) append(" | پوز: ${NumberFormatUtils.formatPrice(inv.posAmount)}")
                                     if (inv.chequeAmount > 0) append(" | چک صیادی: ${NumberFormatUtils.formatPrice(inv.chequeAmount)}")

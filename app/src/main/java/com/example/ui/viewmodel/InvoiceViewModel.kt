@@ -715,6 +715,8 @@ class InvoiceViewModel(
                 taxAmount = invoice.taxAmount,
                 totalAmount = invoice.totalAmount,
                 paymentMethod = invoice.paymentType,
+                directExpenseAmount = invoice.directExpenseAmount,
+                directExpenseType = invoice.directExpenseType,
                 note = notes
             )
 
@@ -746,9 +748,33 @@ class InvoiceViewModel(
             taxAmount = invoice.taxAmount,
             totalAmount = invoice.totalAmount,
             paymentMethod = invoice.paymentType,
+            directExpenseAmount = invoice.directExpenseAmount,
+            directExpenseType = invoice.directExpenseType,
             note = invoice.notes
         )
         _previewReceiptText.value = EscPosPrinterHelper.buildPlainTextReceipt(printable)
+    }
+
+    fun quickAddParty(party: PartyEntity, onComplete: (PartyEntity) -> Unit) {
+        viewModelScope.launch {
+            val newId = partyRepo.insertParty(party)
+            val created = party.copy(id = newId)
+            _selectedParty.value = created
+            onComplete(created)
+        }
+    }
+
+    fun quickAddOrUpdateProduct(product: ProductEntity, onComplete: (ProductEntity) -> Unit) {
+        viewModelScope.launch {
+            val savedProduct = if (product.id == 0L) {
+                val newId = inventoryRepo.insertProduct(product)
+                product.copy(id = newId)
+            } else {
+                inventoryRepo.updateProduct(product)
+                product
+            }
+            onComplete(savedProduct)
+        }
     }
 
     fun exportPdf(context: Context, invoiceWithItems: InvoiceWithItems, storeProfile: StoreProfile) {
@@ -769,21 +795,26 @@ class InvoiceViewModel(
         val inv = invoiceWithItems.invoice
         val sb = StringBuilder()
         sb.append("🧾 صورتحساب ${storeProfile.name}\n")
-        sb.append("شماره فاکتور: ${inv.invoiceNumber}\n")
-        sb.append("تاریخ: ${inv.jalaliDate}\n")
+        sb.append("شماره فاکتور: ${com.example.util.NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber)}\n")
+        sb.append("تاریخ: ${com.example.util.NumberFormatUtils.toPersianDigits(inv.jalaliDate)}\n")
         sb.append("مشتری: ${inv.partyName}\n")
         sb.append("-----------------------------\n")
         invoiceWithItems.items.forEachIndexed { i, itm ->
             sb.append("${i + 1}. ${itm.productName} | ${itm.quantity} ${itm.unitName} × ${itm.unitPrice} = ${itm.totalPrice} تومان\n")
         }
         sb.append("-----------------------------\n")
-        sb.append("جمع اقلام: ${inv.subtotalAmount} تومان\n")
-        if (inv.discountAmount > 0) sb.append("تخفیف: ${inv.discountAmount} تومان\n")
-        if (inv.taxAmount > 0) sb.append("مالیات ارزش افزوده: ${inv.taxAmount} تومان\n")
-        if (inv.directExpenseAmount > 0) sb.append("هزینه مستقیم (${inv.directExpenseType}): ${inv.directExpenseAmount} تومان\n")
-        sb.append("مبلغ نهایی: ${inv.totalAmount} تومان\n")
-        sb.append("نوع تسویه: ${inv.paymentType}\n")
-        sb.append("شماره کارت جهت واریز: ${storeProfile.defaultBankCard}\n")
+        sb.append("جمع اقلام: ${com.example.util.NumberFormatUtils.formatPrice(inv.subtotalAmount)}\n")
+        if (inv.discountAmount > 0) sb.append("تخفیف: ${com.example.util.NumberFormatUtils.formatPrice(inv.discountAmount)}\n")
+        if (inv.taxAmount > 0) sb.append("مالیات ارزش افزوده: ${com.example.util.NumberFormatUtils.formatPrice(inv.taxAmount)}\n")
+        if (inv.directExpenseAmount > 0) {
+            val expLabel = if (inv.directExpenseType.isNotBlank()) "هزینه مستقیم (${inv.directExpenseType})" else "هزینه‌های مستقیم و جانبی"
+            sb.append("$expLabel: ${com.example.util.NumberFormatUtils.formatPrice(inv.directExpenseAmount)}\n")
+        }
+        sb.append("مبلغ نهایی: ${com.example.util.NumberFormatUtils.formatPrice(inv.totalAmount)}\n")
+        sb.append("نوع تسویه: ${com.example.util.NumberFormatUtils.formatPaymentType(inv.paymentType)}\n")
+        if (storeProfile.defaultBankCard.isNotBlank()) {
+            sb.append("شماره کارت جهت واریز: ${storeProfile.defaultBankCard}\n")
+        }
         sb.append("با تشکر از حسن انتخاب شما.")
         ExportHelper.shareText(context, sb.toString(), "ارسال متنی فاکتور")
     }

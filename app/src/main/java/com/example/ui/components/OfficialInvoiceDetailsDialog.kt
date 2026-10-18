@@ -93,7 +93,7 @@ fun OfficialInvoiceDetailsDialog(
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "${storeProfile.name} | شماره: ${inv.invoiceNumber} | تاریخ: ${inv.jalaliDate}",
+                            text = "${storeProfile.name} | شماره: ${NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber)} | تاریخ: ${NumberFormatUtils.toPersianDigits(inv.jalaliDate)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -205,29 +205,33 @@ fun OfficialInvoiceDetailsDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
-                                .padding(vertical = 6.dp, horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .background(Color(0xFF37474F), RoundedCornerShape(6.dp))
+                                .padding(vertical = 6.dp, horizontal = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("کالا و تعداد", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(2f))
-                            Text("فی", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.2f))
-                            Text("مبلغ کل", fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.3f))
+                            Text("ردیف", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.width(28.dp))
+                            Text("شرح کالا", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(2f))
+                            Text("تعداد", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(0.9f))
+                            Text("فی (تومان)", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(1.2f))
+                            Text("جمع کل (تومان)", fontWeight = FontWeight.Bold, fontSize = 10.sp, color = Color.White, modifier = Modifier.weight(1.3f))
                         }
 
                         items.forEachIndexed { idx, itm ->
+                            val rowBg = if (idx % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 6.dp, horizontal = 8.dp),
+                                    .background(rowBg)
+                                    .padding(vertical = 6.dp, horizontal = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(2f)) {
-                                    Text("${idx + 1}. ${itm.productName}", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                                    Text("${itm.quantity} ${itm.unitName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Text(NumberFormatUtils.formatPrice(itm.unitPrice), fontSize = 11.sp, modifier = Modifier.weight(1.2f))
-                                Text(NumberFormatUtils.formatPrice(itm.totalPrice), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.weight(1.3f))
+                                Text(NumberFormatUtils.toPersianDigits((idx + 1).toString()), fontSize = 10.sp, modifier = Modifier.width(28.dp))
+                                Text(itm.productName, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, modifier = Modifier.weight(2f))
+                                Text("${NumberFormatUtils.toPersianDigits(itm.quantity.toString())} ${itm.unitName}", fontSize = 10.sp, modifier = Modifier.weight(0.9f))
+                                Text(NumberFormatUtils.formatPrice(itm.unitPrice), fontSize = 10.sp, modifier = Modifier.weight(1.2f))
+                                Text(NumberFormatUtils.formatPrice(itm.totalPrice), fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1.3f))
                             }
                             if (idx < items.size - 1) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
@@ -257,14 +261,21 @@ fun OfficialInvoiceDetailsDialog(
                         }
                         if (inv.taxAmount > 0) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("مالیات بر ارزش افزوده:", fontSize = 12.sp)
+                                Text("مالیات بر ارزش افزوده (۱۰٪):", fontSize = 12.sp)
                                 Text(NumberFormatUtils.formatPrice(inv.taxAmount), fontSize = 12.sp)
                             }
                         }
                         if (inv.directExpenseAmount > 0) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("هزینه مستقیم (${inv.directExpenseType}):", fontSize = 12.sp)
-                                Text(NumberFormatUtils.formatPrice(inv.directExpenseAmount), fontSize = 12.sp, color = PersianGold)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PersianGold.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                val expLabel = if (inv.directExpenseType.isNotBlank()) "هزینه مستقیم (${inv.directExpenseType}):" else "هزینه‌های مستقیم و جانبی (کرایه حمل):"
+                                Text(expLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PersianGold)
+                                Text(NumberFormatUtils.formatPrice(inv.directExpenseAmount), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PersianGold)
                             }
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
@@ -290,7 +301,7 @@ fun OfficialInvoiceDetailsDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
                         val settlementSummary = buildString {
-                            append("شیوه تسویه: ${inv.paymentType}")
+                            append("شیوه تسویه: ${NumberFormatUtils.formatPaymentType(inv.paymentType)}")
                             if (inv.cashAmount > 0) append(" | نقد: ${NumberFormatUtils.formatPrice(inv.cashAmount)}")
                             if (inv.posAmount > 0) append(" | پوز: ${NumberFormatUtils.formatPrice(inv.posAmount)}")
                             if (inv.chequeAmount > 0) append(" | چک: ${NumberFormatUtils.formatPrice(inv.chequeAmount)}")
