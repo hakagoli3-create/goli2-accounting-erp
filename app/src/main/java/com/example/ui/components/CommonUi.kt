@@ -60,6 +60,7 @@ import com.example.ui.theme.AccountingDebitGreen
 import com.example.ui.theme.AlertWarningOrange
 import com.example.ui.theme.PersianGold
 import com.example.util.NumberFormatUtils
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.text.style.TextAlign
@@ -84,13 +85,13 @@ fun ErpTopAppBar(
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     ),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -101,15 +102,15 @@ fun ErpTopAppBar(
                     Icon(
                         imageVector = navigationIcon,
                         contentDescription = "بازگشت",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
         },
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface
         )
     )
 }
@@ -120,7 +121,7 @@ fun MetricStatCard(
     value: String,
     subValue: String? = null,
     icon: ImageVector,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
     iconTint: Color = MaterialTheme.colorScheme.primary,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
@@ -131,7 +132,8 @@ fun MetricStatCard(
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
