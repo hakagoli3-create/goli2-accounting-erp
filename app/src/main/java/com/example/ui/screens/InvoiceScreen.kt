@@ -383,6 +383,7 @@ private fun InvoiceListContent(
     onExportAllPdf: () -> Unit,
     onExportAllCsv: () -> Unit
 ) {
+    val context = LocalContext.current
     var filterType by remember { mutableStateOf("ALL") }
     var voidingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
     var deletingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }

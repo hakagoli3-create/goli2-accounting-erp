@@ -339,7 +339,8 @@ fun TreasuryScreen(
 @Composable
 private fun ChequesContent(
     cheques: List<ChequeEntity>,
-    onUpdateStatus: (ChequeEntity, String) -> Unit
+    onUpdateStatus: (ChequeEntity, String) -> Unit,
+    onDeleteCheque: (ChequeEntity) -> Unit = {}
 ) {
     var filterType by remember { mutableStateOf("ALL") }
 
@@ -470,6 +471,13 @@ private fun ChequesContent(
                                         text = { Text("در جریان وصول (عادی)") },
                                         onClick = {
                                             onUpdateStatus(cheque, "NORMAL")
+                                            menuExpanded = false
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("حذف چک", color = AccountingCreditRed) },
+                                        onClick = {
+                                            onDeleteCheque(cheque)
                                             menuExpanded = false
                                         }
                                     )
