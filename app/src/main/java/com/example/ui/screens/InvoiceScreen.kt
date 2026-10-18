@@ -91,11 +91,38 @@ import com.example.ui.components.OfficialInvoicePrintPreviewDialog
 import com.example.ui.components.ReceiptPreviewDialog
 import com.example.ui.theme.AccountingCreditRed
 import com.example.ui.theme.AccountingDebitGreen
+import com.example.ui.theme.AlertWarningOrange
+import com.example.ui.theme.CleanBackground
+import com.example.ui.theme.CleanBorder
+import com.example.ui.theme.CleanSurface
+import com.example.ui.theme.MatteGold
+import com.example.ui.theme.MatteGoldContainer
+import com.example.ui.theme.NavyBrand
+import com.example.ui.theme.NavyDark
+import com.example.ui.theme.NavyPrimary
+import com.example.ui.theme.NavySurface
 import com.example.ui.theme.PersianGold
+import com.example.ui.theme.StatusInfoBlue
+import com.example.ui.theme.TextDarkMuted
+import com.example.ui.theme.TextDarkPrimary
+import com.example.ui.theme.TextDarkSecondary
 import com.example.ui.viewmodel.CartItem
 import com.example.ui.viewmodel.InvoiceViewModel
 import com.example.util.ExportHelper
+import com.example.util.JalaliDate
 import com.example.util.NumberFormatUtils
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.OutlinedTextFieldDefaults
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,18 +179,38 @@ fun InvoiceScreen(
     val grandTotal = taxable + tax + directExpenseAmount
 
     Scaffold(
+        modifier = Modifier.testTag("invoice_screen"),
+        containerColor = CleanBackground,
         topBar = {
             Column {
                 ErpTopAppBar(
                     title = "فاکتورهای خرید، فروش و مرجوعی",
-                    subtitle = "تسویه ترکیبی (نقدی/پوز/چک/نسیه)، هزینه‌های مستقیم و کنترل اعتبار"
+                    subtitle = "تسویه ترکیبی (نقدی/پوز/چک/نسیه)، هزینه‌های مستقیم و فیلتر پیشرفته"
                 )
-                PrimaryTabRow(selectedTabIndex = selectedTab) {
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = CleanSurface,
+                    contentColor = NavyPrimary,
+                    indicator = { tabPositions ->
+                        TabRowDefaults.SecondaryIndicator(
+                            Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                            color = MatteGold,
+                            height = 3.dp
+                        )
+                    }
+                ) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            text = { Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) },
+                            text = {
+                                Text(
+                                    text = title,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedTab == index) NavyPrimary else TextDarkSecondary
+                                )
+                            },
                             modifier = Modifier.testTag("invoice_tab_$index")
                         )
                     }
@@ -407,40 +454,103 @@ private fun InvoiceListContent(
 ) {
     val context = LocalContext.current
     var filterType by remember { mutableStateOf("ALL") }
+    var filterDate by remember { mutableStateOf("ALL") }
+    var filterPayment by remember { mutableStateOf("ALL") }
     var searchQuery by remember { mutableStateOf("") }
     var voidingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
     var deletingInvoice by remember { mutableStateOf<InvoiceWithItems?>(null) }
 
-    val filteredInvoices = remember(invoices, filterType, searchQuery) {
-        val q = searchQuery.trim()
-        val typeFiltered = when (filterType) {
-            "SALE" -> invoices.filter { it.invoice.invoiceType in listOf("SALE", "POS_SALE") }
-            "PURCHASE" -> invoices.filter { it.invoice.invoiceType == "PURCHASE" }
-            "RETURN_SALE" -> invoices.filter { it.invoice.invoiceType == "RETURN_SALE" }
-            "RETURN_PURCHASE" -> invoices.filter { it.invoice.invoiceType == "RETURN_PURCHASE" }
-            else -> invoices
-        }
-        if (q.isBlank()) {
-            typeFiltered
-        } else {
-            typeFiltered.filter { invWithItems ->
-                val inv = invWithItems.invoice
-                inv.invoiceNumber.contains(q, ignoreCase = true) ||
-                        NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber).contains(q, ignoreCase = true) ||
-                        inv.partyName.contains(q, ignoreCase = true) ||
-                        inv.partyPhone.contains(q, ignoreCase = true) ||
+    val today = remember { JalaliDate.now() }
+    val todayStr = remember { today.toStandardString() }
+    val thisMonthPrefix = remember { "${today.year}/${today.month.toString().padStart(2, '0')}" }
+    val sevenDaysAgoEpoch = remember { today.toEpochMillis() - (7 * 86400000L) }
+
+    val filteredInvoices = remember(invoices, filterType, filterDate, filterPayment, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+
+        invoices.filter { invWithItems ->
+            val inv = invWithItems.invoice
+
+            // ۱. فیلتر نوع فاکتور
+            val matchesType = when (filterType) {
+                "SALE" -> inv.invoiceType in listOf("SALE", "POS_SALE")
+                "PURCHASE" -> inv.invoiceType == "PURCHASE"
+                "RETURN_SALE" -> inv.invoiceType == "RETURN_SALE"
+                "RETURN_PURCHASE" -> inv.invoiceType == "RETURN_PURCHASE"
+                else -> true
+            }
+
+            // ۲. فیلتر تاریخ شمسی
+            val matchesDate = when (filterDate) {
+                "TODAY" -> inv.jalaliDate.contains(todayStr) || inv.jalaliDate.replace('/', '-') == todayStr.replace('/', '-')
+                "WEEK" -> try {
+                    JalaliDate.parse(inv.jalaliDate).toEpochMillis() >= sevenDaysAgoEpoch
+                } catch (e: Exception) { true }
+                "MONTH" -> inv.jalaliDate.startsWith(thisMonthPrefix) || inv.jalaliDate.contains("/${today.month.toString().padStart(2, '0')}/")
+                else -> true
+            }
+
+            // ۳. فیلتر وضعیت پرداخت / تسویه
+            val matchesPayment = when (filterPayment) {
+                "CASH" -> inv.paymentType.equals("CASH", ignoreCase = true)
+                "POS" -> inv.paymentType.equals("POS", ignoreCase = true)
+                "CREDIT" -> inv.paymentType.equals("CREDIT", ignoreCase = true)
+                "CHEQUE" -> inv.paymentType.equals("CHEQUE", ignoreCase = true)
+                "MIXED" -> inv.paymentType.equals("MIXED", ignoreCase = true)
+                else -> true
+            }
+
+            // ۴. جست‌وجوی متنی
+            val matchesSearch = if (q.isBlank()) true else {
+                inv.invoiceNumber.lowercase().contains(q) ||
+                        NumberFormatUtils.formatInvoiceNumber(inv.invoiceNumber).lowercase().contains(q) ||
+                        inv.partyName.lowercase().contains(q) ||
+                        inv.partyPhone.lowercase().contains(q) ||
                         NumberFormatUtils.toPersianDigits(inv.partyPhone).contains(q) ||
                         inv.jalaliDate.contains(q) ||
                         NumberFormatUtils.toPersianDigits(inv.jalaliDate).contains(q) ||
-                        NumberFormatUtils.formatPaymentType(inv.paymentType).contains(q, ignoreCase = true) ||
-                        invWithItems.items.any { it.productName.contains(q, ignoreCase = true) }
+                        NumberFormatUtils.formatPaymentType(inv.paymentType).lowercase().contains(q) ||
+                        invWithItems.items.any { it.productName.lowercase().contains(q) }
             }
+
+            matchesType && matchesDate && matchesPayment && matchesSearch
         }
     }
 
+    val totalFilteredSum = remember(filteredInvoices) {
+        filteredInvoices.filter { it.invoice.status != "VOID" }.sumOf { it.invoice.totalAmount }
+    }
+    val todayInvoicesCount = remember(invoices, todayStr) {
+        invoices.count { it.invoice.jalaliDate.contains(todayStr) || it.invoice.jalaliDate.replace('/', '-') == todayStr.replace('/', '-') }
+    }
+
     if (invoices.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("هیچ فاکتوری تا کنون ثبت نشده است.")
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.Receipt,
+                    contentDescription = null,
+                    tint = TextDarkMuted,
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "هیچ فاکتوری تا کنون ثبت نشده است.",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = TextDarkSecondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Text(
+                    text = "از تب «صدور فاکتور جدید» اولین فاکتور فروش یا خرید را ثبت کنید.",
+                    style = MaterialTheme.typography.bodySmall.copy(color = TextDarkMuted)
+                )
+            }
         }
         return
     }
@@ -448,113 +558,402 @@ private fun InvoiceListContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 80.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
     ) {
+        // ۱. کارت شاخص‌های آماری و گزارشات خروجی (KPI Summary Card)
         item {
-            Row(
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = NavySurface),
+                border = BorderStroke(1.dp, MatteGold.copy(alpha = 0.4f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Text(
-                    text = "لیست فاکتورها (${filteredInvoices.size} از ${invoices.size})",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(
-                        onClick = onExportAllPdf,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("PDF", fontSize = 11.sp)
-                    }
-                    Button(
-                        onClick = onExportAllCsv,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianGold)
-                    ) {
-                        Icon(imageVector = Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("اکسل", fontSize = 11.sp)
-                    }
-                }
-            }
+                        Column {
+                            Text(
+                                text = "مجموع مبلغ فاکتورهای نمایش داده شده",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 11.5.sp
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = NumberFormatUtils.formatPrice(totalFilteredSum),
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    color = MatteGold,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 19.sp
+                                )
+                            )
+                        }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                        // دکمه‌های گزارشات جمعی PDF و اکسل
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MatteGold,
+                                modifier = Modifier.clickable { onExportAllPdf() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = "PDF کلی",
+                                        tint = NavyDark,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = "PDF",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = NavyDark,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+                            }
 
-            // باکس جستجوی سریع فاکتورها بر اساس شماره فاکتور، نام طرف حساب، کالا یا تلفن
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("جستجوی شماره فاکتور، طرف حساب، کالا یا تلفن...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "پاک کردن")
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                                modifier = Modifier.clickable { onExportAllCsv() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.TableChart,
+                                        contentDescription = "اکسل کلی",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        text = "اکسل",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
-                },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("invoice_search_input")
-            )
 
-            Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-            // فیلتر انواع فاکتورها (خرید، فروش، مرجوعی)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilterChip(
-                    selected = filterType == "ALL",
-                    onClick = { filterType = "ALL" },
-                    label = { Text("همه", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = filterType == "SALE",
-                    onClick = { filterType = "SALE" },
-                    label = { Text("فروش", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = filterType == "PURCHASE",
-                    onClick = { filterType = "PURCHASE" },
-                    label = { Text("خرید", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = filterType == "RETURN_SALE",
-                    onClick = { filterType = "RETURN_SALE" },
-                    label = { Text("مرجوعی فروش", fontSize = 10.sp) }
-                )
-                FilterChip(
-                    selected = filterType == "RETURN_PURCHASE",
-                    onClick = { filterType = "RETURN_PURCHASE" },
-                    label = { Text("مرجوعی خرید", fontSize = 10.sp) }
-                )
-            }
-        }
-
-        if (filteredInvoices.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("هیچ فاکتوری مطابق با جستجوی «$searchQuery» یافت نشد.")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "فاکتورهای فیلترشده: ${NumberFormatUtils.toPersianDigits(filteredInvoices.size.toString())} از ${NumberFormatUtils.toPersianDigits(invoices.size.toString())} سند",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 11.sp
+                            )
+                        )
+                        Text(
+                            text = "امروز: ${NumberFormatUtils.toPersianDigits(todayInvoicesCount.toString())} فاکتور",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MatteGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
                 }
             }
         }
 
+        // ۲. باکس جست‌وجوی هوشمند فاکتورها
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = CleanSurface),
+                border = BorderStroke(1.dp, CleanBorder)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = {
+                        Text(
+                            text = "جست‌وجوی شماره فاکتور، طرف‌حساب، کالا، تلفن یا تاریخ...",
+                            fontSize = 12.sp,
+                            color = TextDarkMuted
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = NavyPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "پاک کردن",
+                                    tint = TextDarkSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MatteGold,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = CleanSurface,
+                        unfocusedContainerColor = CleanSurface
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("invoice_search_input")
+                )
+            }
+        }
+
+        // ۳. فیلتر تاریخ شمسی (Shamsi Date Filter)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = MatteGold,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "فیلتر تاریخ شمسی:",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextDarkSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    )
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val dateOptions = listOf(
+                        "ALL" to "همه زمان‌ها",
+                        "TODAY" to "امروز",
+                        "WEEK" to "۷ روز اخیر",
+                        "MONTH" to "این ماه"
+                    )
+                    items(dateOptions) { (key, label) ->
+                        val isSelected = filterDate == key
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) NavyPrimary else CleanSurface,
+                            border = BorderStroke(1.dp, if (isSelected) NavyPrimary else CleanBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { filterDate = key }
+                                .testTag("invoice_date_filter_$key")
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (isSelected) Color.White else TextDarkPrimary,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.5.sp
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ۴. فیلتر نوع فاکتور (Type Filter)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = null,
+                        tint = NavyPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "نوع فاکتور:",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextDarkSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    )
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val typeOptions = listOf(
+                        "ALL" to "همه انواع",
+                        "SALE" to "فروش",
+                        "PURCHASE" to "خرید",
+                        "RETURN_SALE" to "مرجوعی فروش",
+                        "RETURN_PURCHASE" to "مرجوعی خرید"
+                    )
+                    items(typeOptions) { (key, label) ->
+                        val isSelected = filterType == key
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) MatteGoldContainer else CleanSurface,
+                            border = BorderStroke(1.dp, if (isSelected) MatteGold else CleanBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { filterType = key }
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (isSelected) NavyPrimary else TextDarkPrimary,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.5.sp
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ۵. فیلتر روش تسویه و وضعیت پرداخت (Payment Status Filter)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalanceWallet,
+                        contentDescription = null,
+                        tint = StatusInfoBlue,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "وضعیت تسویه و پرداخت:",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = TextDarkSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    )
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val paymentOptions = listOf(
+                        "ALL" to "همه روش‌ها",
+                        "CASH" to "نقدی",
+                        "POS" to "کارتخوان POS",
+                        "CREDIT" to "نسیه",
+                        "CHEQUE" to "چک صیادی",
+                        "MIXED" to "ترکیبی"
+                    )
+                    items(paymentOptions) { (key, label) ->
+                        val isSelected = filterPayment == key
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFFE8EDF5) else CleanSurface,
+                            border = BorderStroke(1.dp, if (isSelected) NavyPrimary else CleanBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { filterPayment = key }
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (isSelected) NavyPrimary else TextDarkPrimary,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.5.sp
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // پیام در صورت خالی بودن نتایج فیلتر
+        if (filteredInvoices.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = CleanSurface),
+                    border = BorderStroke(1.dp, CleanBorder)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = TextDarkMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "هیچ فاکتوری با شرایط انتخابی یافت نشد.",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = TextDarkSecondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        Text(
+                            text = "فیلترها را تغییر دهید یا عبارت جست‌وجو را پاک کنید.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextDarkMuted)
+                        )
+                    }
+                }
+            }
+        }
+
+        // ۶. فهرست کارت‌های شکیل فاکتورها (Invoice Cards)
         items(filteredInvoices) { inv ->
             val invoice = inv.invoice
             val isVoid = invoice.status == "VOID"
@@ -566,157 +965,377 @@ private fun InvoiceListContent(
                 else -> "فاکتور فروش"
             }
             val typeColor = when (invoice.invoiceType) {
-                "PURCHASE" -> PersianGold
+                "PURCHASE" -> MatteGold
                 "RETURN_SALE" -> AccountingCreditRed
                 "RETURN_PURCHASE" -> Color(0xFF00897B)
-                else -> MaterialTheme.colorScheme.primary
+                else -> NavyPrimary
+            }
+            val typeContainerColor = when (invoice.invoiceType) {
+                "PURCHASE" -> MatteGoldContainer
+                "RETURN_SALE" -> Color(0xFFFFECEC)
+                "RETURN_PURCHASE" -> Color(0xFFE0F2F1)
+                else -> Color(0xFFE9EDF5)
             }
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
                     .clickable { onOpenDetails(inv) }
                     .testTag("invoice_card_${invoice.id}"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isVoid) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+                    containerColor = if (isVoid) Color(0xFFF7F7F8) else CleanSurface
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                border = BorderStroke(
+                    1.dp,
+                    if (isVoid) CleanBorder else CleanBorder
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
+                    // ردیف اول: شماره فاکتور، نشانگر نوع، حالت عمده/تکی و وضعیت قطعی/ابطال
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
                                 text = NumberFormatUtils.formatInvoiceNumber(invoice.invoiceNumber),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = if (isVoid) TextDarkMuted else TextDarkPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp
+                                )
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+
                             // بج نوع فاکتور
-                            Card(
+                            Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                colors = CardDefaults.cardColors(containerColor = typeColor.copy(alpha = 0.15f))
+                                color = typeContainerColor
                             ) {
                                 Text(
                                     text = typeTitle,
-                                    color = typeColor,
-                                    fontSize = 10.sp,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = typeColor,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            // بج نرخ‌گذاری عمده یا تکی
+                            val modeBadge = if (invoice.pricingMode == "WHOLESALE") "عمده" else "تکی"
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFECEFF4)
+                            ) {
+                                Text(
+                                    text = modeBadge,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = TextDarkSecondary,
+                                        fontSize = 10.sp
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        // وضعیت فاکتور (قطعی / پیش‌فاکتور / باطل شده)
+                        if (isVoid) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = AccountingCreditRed.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = "باطل شده",
+                                    color = AccountingCreditRed,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            // بج عمده یا تکی
-                            val modeBadge = if (invoice.pricingMode == "WHOLESALE") "عمده" else "تکی"
-                            Card(
+                        } else if (invoice.status == "PROFORMA") {
+                            Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                color = StatusInfoBlue.copy(alpha = 0.12f)
                             ) {
                                 Text(
-                                    text = modeBadge,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    text = "پیش‌فاکتور",
+                                    color = StatusInfoBlue,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = AccountingDebitGreen.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = "قطعی",
+                                    color = AccountingDebitGreen,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // ردیف دوم: اطلاعات طرف‌حساب، تاریخ و روش تسویه
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "طرف حساب: ${invoice.partyName}",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = TextDarkPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = TextDarkMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = NumberFormatUtils.toPersianDigits(invoice.jalaliDate),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = TextDarkSecondary,
+                                    fontSize = 12.sp
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // ردیف سوم: روش تسویه و تعداد اقلام
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = CleanBackground,
+                            border = BorderStroke(1.dp, CleanBorder)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Payments,
+                                    contentDescription = null,
+                                    tint = MatteGold,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "تسویه: ${NumberFormatUtils.formatPaymentType(invoice.paymentType)}",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = TextDarkSecondary,
+                                        fontSize = 10.5.sp
+                                    )
                                 )
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (isVoid) {
-                                Text("باطل شده", color = AccountingCreditRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            } else if (invoice.status == "PROFORMA") {
-                                Text("پیش‌فاکتور", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            } else {
-                                Text("قطعی", color = AccountingDebitGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "طرف حساب: ${invoice.partyName} | تاریخ: ${NumberFormatUtils.toPersianDigits(invoice.jalaliDate)} | تسویه: ${NumberFormatUtils.formatPaymentType(invoice.paymentType)}",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp)
-                    )
-
-                    if (invoice.directExpenseAmount > 0) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        val expLabel = if (invoice.directExpenseType.isNotBlank()) "هزینه مستقیم (${invoice.directExpenseType}):" else "هزینه مستقیم (کرایه حمل):"
                         Text(
-                            text = "$expLabel ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)} تومان",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PersianGold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "اقلام: ${NumberFormatUtils.toPersianDigits(inv.items.size.toString())} ردیف",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = NumberFormatUtils.formatPrice(invoice.totalAmount),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                            text = "${NumberFormatUtils.toPersianDigits(inv.items.size.toString())} قلم کالا",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = TextDarkMuted,
+                                fontSize = 11.sp
                             )
                         )
                     }
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    // هزینه مستقیم (کرایه حمل)
+                    if (invoice.directExpenseAmount > 0) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val expLabel = if (invoice.directExpenseType.isNotBlank()) invoice.directExpenseType else "کرایه حمل"
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MatteGoldContainer
+                        ) {
+                            Text(
+                                text = "$expLabel: ${NumberFormatUtils.formatPrice(invoice.directExpenseAmount)}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = NavyPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
 
-                    // دکمه‌های عملیاتی: ویرایش فاکتور، ابطال فاکتور، حذف فاکتور و چاپ
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = CleanBorder)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // ردیف مبالغ و دکمه‌های عملیاتی
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (!isVoid) {
-                                OutlinedButton(
-                                    onClick = { onEditInvoice(inv) },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(30.dp)
-                                ) {
-                                    Text("ویرایش", fontSize = 11.sp)
-                                }
-                                OutlinedButton(
-                                    onClick = { voidingInvoice = inv },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(30.dp)
-                                ) {
-                                    Text("ابطال", fontSize = 11.sp, color = AccountingCreditRed)
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = { deletingInvoice = inv },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(30.dp)
-                            ) {
-                                Text("حذف", fontSize = 11.sp, color = AccountingCreditRed)
-                            }
+                        Column {
+                            Text(
+                                text = "مبلغ کل فاکتور:",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = TextDarkMuted,
+                                    fontSize = 10.sp
+                                )
+                            )
+                            Text(
+                                text = NumberFormatUtils.formatPrice(invoice.totalAmount),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = if (isVoid) TextDarkMuted else NavyPrimary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp
+                                )
+                            )
                         }
 
-                        Row {
-                            IconButton(onClick = { onExportPdf(inv) }, modifier = Modifier.size(30.dp)) {
-                                Icon(Icons.Default.Description, contentDescription = "PDF", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        // ابزارهای فاکتور: جزئیات، ویرایش، ابطال، چاپ، PDF و اکسل
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // دکمه مشاهده جزئیات
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = NavyPrimary,
+                                modifier = Modifier.clickable { onOpenDetails(inv) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Visibility,
+                                        contentDescription = "جزئیات فاکتور",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "جزئیات",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.5.sp
+                                        )
+                                    )
+                                }
                             }
-                            IconButton(onClick = { onExportCsv(inv) }, modifier = Modifier.size(30.dp)) {
-                                Icon(Icons.Default.TableChart, contentDescription = "Excel", tint = PersianGold, modifier = Modifier.size(18.dp))
+
+                            // دکمه ویرایش (در صورت عدم ابطال)
+                            if (!isVoid) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = CleanBackground,
+                                    border = BorderStroke(1.dp, CleanBorder),
+                                    modifier = Modifier.clickable { onEditInvoice(inv) }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "ویرایش",
+                                        tint = NavyPrimary,
+                                        modifier = Modifier
+                                            .padding(6.dp)
+                                            .size(16.dp)
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = CleanBackground,
+                                    border = BorderStroke(1.dp, CleanBorder),
+                                    modifier = Modifier.clickable { voidingInvoice = inv }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = "ابطال فاکتور",
+                                        tint = AlertWarningOrange,
+                                        modifier = Modifier
+                                            .padding(6.dp)
+                                            .size(16.dp)
+                                    )
+                                }
                             }
-                            IconButton(onClick = { onPrintInvoice(inv) }, modifier = Modifier.size(30.dp)) {
-                                Icon(Icons.Default.Print, contentDescription = "چاپ حرارتی", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+
+                            // دکمه حذف فاکتور
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = CleanBackground,
+                                border = BorderStroke(1.dp, CleanBorder),
+                                modifier = Modifier.clickable { deletingInvoice = inv }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "حذف فاکتور",
+                                    tint = AccountingCreditRed,
+                                    modifier = Modifier
+                                        .padding(6.dp)
+                                        .size(16.dp)
+                                )
+                            }
+
+                            // دکمه چاپ و خروجی‌ها
+                            IconButton(
+                                onClick = { onPrintInvoice(inv) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Print,
+                                    contentDescription = "چاپ فاکتور",
+                                    tint = MatteGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { onExportPdf(inv) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = "خروجی PDF",
+                                    tint = NavyPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { onExportCsv(inv) },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.TableChart,
+                                    contentDescription = "خروجی اکسل",
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
@@ -725,12 +1344,24 @@ private fun InvoiceListContent(
         }
     }
 
-    // Modal: تایید ابطال فاکتور
+    // مودال تأیید ابطال فاکتور
     voidingInvoice?.let { inv ->
         AlertDialog(
             onDismissRequest = { voidingInvoice = null },
-            title = { Text("ابطال فاکتور شماره ${inv.invoice.invoiceNumber}", fontWeight = FontWeight.Bold) },
-            text = { Text("آیا از ابطال این فاکتور اطمینان دارید؟ کلیه اثرات موجودی انبار، مانده حساب طرف‌حساب و خزانه‌داری به طور خودکار معکوس خواهد شد.") },
+            title = {
+                Text(
+                    text = "ابطال فاکتور شماره ${NumberFormatUtils.formatInvoiceNumber(inv.invoice.invoiceNumber)}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "آیا از ابطال این فاکتور اطمینان دارید؟ با ابطال فاکتور، کلیه اثرات انبارداری، سند دوبل حسابداری و مانده خزانه‌داری به طور کامل معکوس می‌گردد.",
+                    fontSize = 12.sp,
+                    color = TextDarkSecondary
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
@@ -739,41 +1370,53 @@ private fun InvoiceListContent(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)
                 ) {
-                    Text("ابطال قطعی فاکتور")
+                    Text("ابطال قطعی فاکتور", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { voidingInvoice = null }) {
-                    Text("انصراف")
+                    Text("انصراف", fontSize = 12.sp)
                 }
             }
         )
     }
 
-    // Modal: تایید حذف فاکتور
+    // مودال تأیید حذف کامل فاکتور
     deletingInvoice?.let { inv ->
         AlertDialog(
             onDismissRequest = { deletingInvoice = null },
-            title = { Text("حذف کامل فاکتور", fontWeight = FontWeight.Bold) },
-            text = { Text("آیا از حذف کامل فاکتور شماره ${inv.invoice.invoiceNumber} اطمینان دارید؟ در صورت قطعی بودن فاکتور، ابتدا اثرات آن برگشت داده شده و سپس حذف می‌گردد.") },
+            title = {
+                Text(
+                    text = "حذف کامل فاکتور ${NumberFormatUtils.formatInvoiceNumber(inv.invoice.invoiceNumber)}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "آیا از حذف کامل این فاکتور اطمینان دارید؟ در صورت وجود تراکنش‌های وابسته، ابتدا آنها را تسویه کنید.",
+                    fontSize = 12.sp,
+                    color = TextDarkSecondary
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
                         try {
                             onDeleteInvoice(inv)
                         } catch (e: Exception) {
-                            Toast.makeText(context, "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد. ابتدا تراکنش‌های مرتبط را مدیریت کنید.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "امکان حذف این سند به دلیل داشتن تراکنش‌های وابسته وجود ندارد.", Toast.LENGTH_LONG).show()
                         }
                         deletingInvoice = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AccountingCreditRed)
                 ) {
-                    Text("حذف فاکتور")
+                    Text("حذف فاکتور", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deletingInvoice = null }) {
-                    Text("انصراف")
+                    Text("انصراف", fontSize = 12.sp)
                 }
             }
         )
