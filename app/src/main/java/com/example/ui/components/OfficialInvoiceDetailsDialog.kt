@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -281,7 +282,41 @@ fun OfficialInvoiceDetailsDialog(
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("مبلغ کل قابل پرداخت:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text(NumberFormatUtils.formatPrice(inv.totalAmount), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                            val displayTotal = if (inv.currencyCode != "TOMAN" && inv.currencyCode.isNotBlank()) {
+                                "${NumberFormatUtils.formatPrice(inv.totalAmount)} ${inv.currencyCode}"
+                            } else {
+                                NumberFormatUtils.formatPrice(inv.totalAmount)
+                            }
+                            Text(displayTotal, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        if (inv.currencyCode != "TOMAN" && inv.currencyCode.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = PersianGold.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, PersianGold.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "نرخ تسعیر ثبت‌شده: ۱ ${inv.currencyCode} = ${NumberFormatUtils.formatPrice(inv.currencyRateToBase.toLong())} تومان",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PersianGold
+                                    )
+                                    Text(
+                                        text = "معادل دفاتر: ${NumberFormatUtils.formatPrice(inv.totalAmountInBase)} تومان",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
@@ -291,8 +326,13 @@ fun OfficialInvoiceDetailsDialog(
                                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
                                 .padding(8.dp)
                         ) {
+                            val wordsText = if (inv.currencyCode == "TOMAN" || inv.currencyCode.isBlank()) {
+                                "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(inv.totalAmount)} تومان"
+                            } else {
+                                "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(inv.totalAmount)} ${inv.currencyCode} (معادل ${NumberFormatUtils.numberToPersianWords(inv.totalAmountInBase)} تومان)"
+                            }
                             Text(
-                                text = "مبلغ به حروف: ${NumberFormatUtils.numberToPersianWords(inv.totalAmount)} تومان",
+                                text = wordsText,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.primary
@@ -300,12 +340,13 @@ fun OfficialInvoiceDetailsDialog(
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
+                        val curSuffix = if (inv.currencyCode != "TOMAN" && inv.currencyCode.isNotBlank()) " ${inv.currencyCode}" else ""
                         val settlementSummary = buildString {
                             append("شیوه تسویه: ${NumberFormatUtils.formatPaymentType(inv.paymentType)}")
-                            if (inv.cashAmount > 0) append(" | نقد: ${NumberFormatUtils.formatPrice(inv.cashAmount)}")
-                            if (inv.posAmount > 0) append(" | پوز: ${NumberFormatUtils.formatPrice(inv.posAmount)}")
-                            if (inv.chequeAmount > 0) append(" | چک: ${NumberFormatUtils.formatPrice(inv.chequeAmount)}")
-                            if (inv.creditAmount > 0) append(" | نسیه: ${NumberFormatUtils.formatPrice(inv.creditAmount)}")
+                            if (inv.cashAmount > 0) append(" | نقد: ${NumberFormatUtils.formatPrice(inv.cashAmount)}$curSuffix")
+                            if (inv.posAmount > 0) append(" | پوز: ${NumberFormatUtils.formatPrice(inv.posAmount)}$curSuffix")
+                            if (inv.chequeAmount > 0) append(" | چک: ${NumberFormatUtils.formatPrice(inv.chequeAmount)}$curSuffix")
+                            if (inv.creditAmount > 0) append(" | نسیه: ${NumberFormatUtils.formatPrice(inv.creditAmount)}$curSuffix")
                         }
                         Text(
                             text = settlementSummary,

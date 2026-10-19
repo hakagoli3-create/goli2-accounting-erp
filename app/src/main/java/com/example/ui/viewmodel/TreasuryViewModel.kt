@@ -85,6 +85,9 @@ class TreasuryViewModel(
     val totalBankBalance: StateFlow<Long?> = repository.totalBankBalance
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
+    val allCurrencyBalances: StateFlow<List<com.example.data.model.TreasuryCurrencyBalanceEntity>> = repository.allCurrencyBalances
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
@@ -632,6 +635,167 @@ class TreasuryViewModel(
                 journalItems
             )
             _statusMessage.value = "انتقال وجه مبلغ ${NumberFormatUtils.formatPrice(amount)} با موفقیت انجام شد."
+            onSuccess()
+        }
+    }
+
+    /**
+     * انتقال پیشرفته و حرفه‌ای بین حساب‌ها و صندوق‌ها با پشتیبانی از چندارزی و کارمزد
+     */
+    fun transferFundsMultiCurrency(
+        fromType: String, // "CASH" or "BANK"
+        fromId: Long,
+        fromCurrency: String,
+        fromAmount: Double,
+        toType: String, // "CASH" or "BANK"
+        toId: Long,
+        toCurrency: String,
+        toAmount: Double,
+        exchangeRate: Double,
+        feeAmount: Long = 0L,
+        trackingNumber: String = "",
+        notes: String = "",
+        rateToBaseFrom: Double = 1.0,
+        rateToBaseTo: Double = 1.0,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            if (fromAmount <= 0 || toAmount <= 0) {
+                _statusMessage.value = "مبالغ انتقال باید بزرگتر از صفر باشند."
+                return@launch
+            }
+            if (fromType == toType && fromId == toId && fromCurrency == toCurrency) {
+                _statusMessage.value = "حساب مبدأ و مقصد و ارز انتخابی نمی‌توانند کاملاً یکسان باشند."
+                return@launch
+            }
+
+            // کسر از مبدأ به ارز مبدأ
+            repository.adjustCurrencyBalance(
+                accountType = fromType,
+                accountId = fromId,
+                currencyCode = fromCurrency,
+                delta = -fromAmount,
+                rateToBase = rateToBaseFrom
+            )
+
+            // کسر کارمزد انتقال در صورت وجود از حساب مبدأ
+            if (feeAmount > 0) {
+                if (fromType == "CASH") repository.updateCashBalance(fromId, -feeAmount)
+                else repository.updateBankBalance(fromId, -feeAmount)
+            }
+
+            // واریز به مقصد به ارز مقصد
+            repository.adjustCurrencyBalance(
+                accountType = toType,
+                accountId = toId,
+                currencyCode = toCurrency,
+                delta = toAmount,
+                rateToBase = rateToBaseTo
+            )
+
+            val fromName = if (fromType == "CASH") {
+                allCashDesks.value.firstOrNull { it.id == fromId }?.name ?: "صندوق مبدأ"
+            } else {
+                allBankAccounts.value.firstOrNull { it.id == fromId }?.bankName ?: "بانک مبدأ"
+            }
+
+            val toName = if (toType == "CASH") {
+                allCashDesks.value.firstOrNull { it.id == toId }?.name ?: "صندوق مقصد"
+            } else {
+                allBankAccounts.value.firstOrNull { it.id == toId }?.bankName ?: "بانک مقصد"
+            }
+
+            val today = JalaliDate.now()
+            val fromSub = if (fromType == "CASH") 10101 else 10102
+            val toSub = if (toType == "CASH") 10101 else 10102
+
+            val baseAmountFrom = (fromAmount * rateToBaseFrom).toLong()
+            val baseAmountTo = (toAmount * rateToBaseTo).toLong()
+
+            val trackingText = if (trackingNumber.isNotBlank()) " | پیگیری: $trackingNumber" else ""
+            val rateText = if (fromCurrency != toCurrency) " (تبدیل $fromAmount $fromCurrency به $toAmount $toCurrency با نرخ $exchangeRate)" else " ($fromAmount $fromCurrency)"
+            val feeText = if (feeAmount > 0) " | کارمزد: ${NumberFormatUtils.formatPrice(feeAmount)}" else ""
+
+            val journalItems = mutableListOf<JournalItemEntity>()
+
+            // بدهکار: ورود به حساب مقصد
+            journalItems.add(
+                JournalItemEntity(
+                    voucherId = 0L,
+                    generalCode = 101,
+                    subsidiaryCode = toSub,
+                    description = "واریز به $toName بابت انتقال از $fromName$rateText$trackingText",
+                    debit = baseAmountTo,
+                    credit = 0L
+                )
+            )
+
+            // کارمزد در صورت وجود
+            if (feeAmount > 0) {
+                journalItems.add(
+                    JournalItemEntity(
+                        voucherId = 0L,
+                        generalCode = 801,
+                        subsidiaryCode = 80102,
+                        description = "هزینه کارمزد انتقال بین حساب‌ها$trackingText",
+                        debit = feeAmount,
+                        credit = 0L
+                    )
+                )
+            }
+
+            // بستانکار: خروج از حساب مبدأ
+            journalItems.add(
+                JournalItemEntity(
+                    voucherId = 0L,
+                    generalCode = 101,
+                    subsidiaryCode = fromSub,
+                    description = "برداشت از $fromName بابت انتقال به $toName$rateText$trackingText$feeText",
+                    debit = 0L,
+                    credit = baseAmountFrom + feeAmount
+                )
+            )
+
+            // ثبت تفاوت تسعیر ارز در صورت لزوم جهت تراز ماندن سند
+            val diff = (baseAmountFrom + feeAmount) - (baseAmountTo + feeAmount)
+            if (diff != 0L) {
+                if (diff > 0) {
+                    journalItems.add(
+                        JournalItemEntity(
+                            voucherId = 0L,
+                            generalCode = 801,
+                            subsidiaryCode = 80102,
+                            description = "تفاوت تسعیر در حواله ارزی",
+                            debit = diff,
+                            credit = 0L
+                        )
+                    )
+                } else {
+                    journalItems.add(
+                        JournalItemEntity(
+                            voucherId = 0L,
+                            generalCode = 601,
+                            subsidiaryCode = 60101,
+                            description = "سود ناشی از تسعیر ارز در حواله",
+                            debit = 0L,
+                            credit = -diff
+                        )
+                    )
+                }
+            }
+
+            accountingRepo.createJournalVoucher(
+                JournalEntryEntity(
+                    voucherNumber = 0L,
+                    jalaliDate = today.toStandardString(),
+                    description = "انتقال وجه حرفه‌ای: از $fromName به $toName$rateText$trackingText ${notes.ifBlank { "" }}",
+                    isBalanced = true,
+                    status = "FINAL"
+                ),
+                journalItems
+            )
+
+            _statusMessage.value = "انتقال وجه از «$fromName» به «$toName» با موفقیت انجام شد."
             onSuccess()
         }
     }

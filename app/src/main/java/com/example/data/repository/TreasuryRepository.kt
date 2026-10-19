@@ -40,4 +40,41 @@ class TreasuryRepository(private val dao: TreasuryDao) {
     suspend fun insertCheque(cheque: ChequeEntity): Long = dao.insertCheque(cheque)
     suspend fun updateCheque(cheque: ChequeEntity) = dao.updateCheque(cheque)
     suspend fun deleteCheque(cheque: ChequeEntity) = dao.deleteCheque(cheque)
+
+    // Multi-Currency Balances
+    val allCurrencyBalances: Flow<List<com.example.data.model.TreasuryCurrencyBalanceEntity>> = dao.getAllCurrencyBalances()
+
+    fun getBalancesForAccount(accountType: String, accountId: Long): Flow<List<com.example.data.model.TreasuryCurrencyBalanceEntity>> =
+        dao.getBalancesForAccount(accountType, accountId)
+
+    suspend fun adjustCurrencyBalance(
+        accountType: String, // "CASH" or "BANK"
+        accountId: Long,
+        currencyCode: String,
+        delta: Double,
+        rateToBase: Double = 1.0
+    ) {
+        val existing = dao.getCurrencyBalance(accountType, accountId, currencyCode)
+        val newBalance = (existing?.balance ?: 0.0) + delta
+        dao.insertOrUpdateCurrencyBalance(
+            com.example.data.model.TreasuryCurrencyBalanceEntity(
+                id = existing?.id ?: 0L,
+                accountType = accountType,
+                accountId = accountId,
+                currencyCode = currencyCode,
+                balance = newBalance
+            )
+        )
+
+        // Also adjust the base balance of the cash desk or bank account
+        val deltaInBase = (delta * rateToBase).toLong()
+        if (deltaInBase != 0L) {
+            if (accountType == "CASH") {
+                dao.updateCashBalance(accountId, deltaInBase)
+            } else {
+                dao.updateBankBalance(accountId, deltaInBase)
+            }
+        }
+    }
 }
+

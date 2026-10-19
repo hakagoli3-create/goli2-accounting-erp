@@ -85,4 +85,20 @@ interface TreasuryDao {
 
     @Delete
     suspend fun deleteCheque(cheque: ChequeEntity)
+
+    // Multi-Currency Balances for Cash Desks and Bank Accounts
+    @Query("SELECT * FROM treasury_currency_balances ORDER BY currencyCode ASC")
+    fun getAllCurrencyBalances(): Flow<List<com.example.data.model.TreasuryCurrencyBalanceEntity>>
+
+    @Query("SELECT * FROM treasury_currency_balances WHERE accountType = :accountType AND accountId = :accountId")
+    fun getBalancesForAccount(accountType: String, accountId: Long): Flow<List<com.example.data.model.TreasuryCurrencyBalanceEntity>>
+
+    @Query("SELECT * FROM treasury_currency_balances WHERE accountType = :accountType AND accountId = :accountId AND currencyCode = :currencyCode LIMIT 1")
+    suspend fun getCurrencyBalance(accountType: String, accountId: Long, currencyCode: String): com.example.data.model.TreasuryCurrencyBalanceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateCurrencyBalance(balanceEntity: com.example.data.model.TreasuryCurrencyBalanceEntity): Long
+
+    @Query("DELETE FROM treasury_currency_balances WHERE accountType = :accountType AND accountId = :accountId")
+    suspend fun deleteBalancesForAccount(accountType: String, accountId: Long)
 }

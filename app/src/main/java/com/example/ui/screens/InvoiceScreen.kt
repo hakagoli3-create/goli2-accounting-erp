@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.CheckCircle
@@ -80,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AppSecurityAndSettingsManager
+import com.example.data.model.CurrencyItem
 import com.example.data.model.InvoiceWithItems
 import com.example.data.model.PartyEntity
 import com.example.data.model.ProductEntity
@@ -152,6 +155,22 @@ fun InvoiceScreen(
     val directExpenseType by viewModel.directExpenseType.collectAsStateWithLifecycle()
     val cashDesks by viewModel.allCashDesks.collectAsStateWithLifecycle()
     val bankAccounts by viewModel.allBankAccounts.collectAsStateWithLifecycle()
+    val selectedCurrencyCode by viewModel.selectedCurrencyCode.collectAsStateWithLifecycle()
+    val invoiceCurrencyRate by viewModel.invoiceCurrencyRate.collectAsStateWithLifecycle()
+    val currencies by securityManager.currencies.collectAsStateWithLifecycle()
+
+    val currentCurrencyItem = remember(currencies, selectedCurrencyCode) {
+        currencies.find { it.code.equals(selectedCurrencyCode, ignoreCase = true) }
+    }
+    val currencySymbol = currentCurrencyItem?.symbol ?: when (selectedCurrencyCode) {
+        "USD" -> "$"
+        "EUR" -> "€"
+        "TRY" -> "₺"
+        "AED" -> "درهم"
+        "IQD" -> "دینار"
+        "TOMAN" -> "تومان"
+        else -> selectedCurrencyCode
+    }
 
     val previewReceipt by viewModel.previewReceiptText.collectAsStateWithLifecycle()
     val selectedInvoiceForDetails by viewModel.selectedInvoiceForDetails.collectAsStateWithLifecycle()
@@ -279,6 +298,10 @@ fun InvoiceScreen(
                     directExpenseType = directExpenseType,
                     editingInvoiceNumber = editingInvoiceNumber,
                     grandTotal = grandTotal,
+                    selectedCurrencyCode = selectedCurrencyCode,
+                    invoiceCurrencyRate = invoiceCurrencyRate,
+                    availableCurrencies = currencies,
+                    onCurrencyChange = { code, rate -> viewModel.setInvoiceCurrency(code, rate) },
                     onInvoiceTypeChange = { viewModel.setCurrentInvoiceType(it) },
                     onPricingModeChange = { viewModel.setPricingMode(it) },
                     onSelectParty = { viewModel.selectParty(it) },
@@ -322,6 +345,9 @@ fun InvoiceScreen(
             cashDesks = cashDesks,
             bankAccounts = bankAccounts,
             selectedParty = selectedParty,
+            currencyCode = selectedCurrencyCode,
+            currencySymbol = currencySymbol,
+            currencyRateToBase = invoiceCurrencyRate,
             onDismiss = { showSettlementDialog = false },
             onConfirmSettlement = { paymentType, cash, pos, cheque, credit, deskId, bankId, chNum, sayad, due, bankName, notes ->
                 viewModel.checkoutAdvanced(
@@ -1439,6 +1465,10 @@ private fun InvoiceEditorContent(
     directExpenseType: String,
     editingInvoiceNumber: String?,
     grandTotal: Long,
+    selectedCurrencyCode: String,
+    invoiceCurrencyRate: Double,
+    availableCurrencies: List<CurrencyItem>,
+    onCurrencyChange: (String, Double) -> Unit,
     onInvoiceTypeChange: (String) -> Unit,
     onPricingModeChange: (String) -> Unit,
     onSelectParty: (PartyEntity?) -> Unit,
@@ -1587,6 +1617,132 @@ private fun InvoiceEditorContent(
                             label = { Text("فروش عمده", fontWeight = FontWeight.Bold) },
                             modifier = Modifier.testTag("pricing_mode_wholesale")
                         )
+                    }
+                }
+            }
+        }
+
+        // انتخاب ارز فاکتور و معامله (چندارزی)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CurrencyExchange, contentDescription = null, tint = MatteGold, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "ارز فاکتور و معامله:",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = NavyPrimary)
+                            )
+                        }
+                        if (selectedCurrencyCode != "TOMAN") {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MatteGold.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, MatteGold.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "فاکتور ارزی ($selectedCurrencyCode)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavyPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    val allCodes = remember(availableCurrencies) {
+                        val std = listOf("TOMAN", "USD", "EUR", "TRY", "AED", "IQD")
+                        (std + availableCurrencies.map { it.code }).distinct()
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(allCodes, key = { it }) { code ->
+                            val label = when (code) {
+                                "TOMAN" -> "تومان (پایه)"
+                                "USD" -> "دلار ($)"
+                                "EUR" -> "یورو (€)"
+                                "TRY" -> "لیر (₺)"
+                                "AED" -> "درهم"
+                                "IQD" -> "دینار"
+                                else -> code
+                            }
+                            FilterChip(
+                                selected = selectedCurrencyCode == code,
+                                onClick = {
+                                    val defaultRate = availableCurrencies.find { it.code.equals(code, ignoreCase = true) }?.exchangeRateToBase
+                                        ?: when (code) {
+                                            "USD" -> 92000.0
+                                            "EUR" -> 98500.0
+                                            "TRY" -> 2850.0
+                                            "AED" -> 25100.0
+                                            "IQD" -> 70.0
+                                            else -> 1.0
+                                        }
+                                    onCurrencyChange(code, defaultRate)
+                                },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    if (selectedCurrencyCode != "TOMAN") {
+                        var rateInput by remember(invoiceCurrencyRate, selectedCurrencyCode) {
+                            mutableStateOf(invoiceCurrencyRate.toLong().toString())
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = rateInput,
+                                onValueChange = {
+                                    rateInput = it
+                                    val r = it.toDoubleOrNull() ?: 1.0
+                                    onCurrencyChange(selectedCurrencyCode, r)
+                                },
+                                label = { Text("نرخ تسعیر هر ۱ $selectedCurrencyCode به تومان") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        val baseEquivalent = (grandTotal * invoiceCurrencyRate).toLong()
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MatteGold.copy(alpha = 0.10f),
+                            border = BorderStroke(0.5.dp, MatteGold.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("معادل کل فاکتور در دفاتر (تومان):", fontSize = 11.sp, color = NavyPrimary)
+                                Text(
+                                    text = NumberFormatUtils.formatPrice(baseEquivalent),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = NavyPrimary
+                                )
+                            }
+                        }
                     }
                 }
             }

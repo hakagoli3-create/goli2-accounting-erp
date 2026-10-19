@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.AccountingDao
+import com.example.data.dao.ExchangeRateDao
 import com.example.data.dao.ExpenseAndIncomeDao
 import com.example.data.dao.InventoryDao
 import com.example.data.dao.InvoiceDao
@@ -16,6 +17,7 @@ import com.example.data.model.AccountGroupEntity
 import com.example.data.model.BankAccountEntity
 import com.example.data.model.CashDeskEntity
 import com.example.data.model.ChequeEntity
+import com.example.data.model.ExchangeRateEntity
 import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.GeneralAccountEntity
@@ -29,6 +31,7 @@ import com.example.data.model.JournalItemEntity
 import com.example.data.model.PartyEntity
 import com.example.data.model.ProductEntity
 import com.example.data.model.SubsidiaryAccountEntity
+import com.example.data.model.TreasuryCurrencyBalanceEntity
 import com.example.data.model.UserEntity
 import com.example.data.model.WarehouseEntity
 import kotlinx.coroutines.CoroutineScope
@@ -55,9 +58,11 @@ import kotlinx.coroutines.launch
         ExpenseEntity::class,
         IncomeCategoryEntity::class,
         IncomeEntity::class,
-        UserEntity::class
+        UserEntity::class,
+        ExchangeRateEntity::class,
+        TreasuryCurrencyBalanceEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -69,6 +74,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun invoiceDao(): InvoiceDao
     abstract fun expenseAndIncomeDao(): ExpenseAndIncomeDao
     abstract fun userDao(): UserDao
+    abstract fun exchangeRateDao(): ExchangeRateDao
 
     companion object {
         @Volatile
@@ -168,6 +174,51 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS exchange_rates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        sourceCurrency TEXT NOT NULL,
+                        targetCurrency TEXT NOT NULL,
+                        rate REAL NOT NULL,
+                        inverseRate REAL NOT NULL,
+                        effectiveDateJalali TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        notes TEXT NOT NULL,
+                        recordedBy TEXT NOT NULL,
+                        isActive INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exchange_rates_sourceCurrency ON exchange_rates(sourceCurrency)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exchange_rates_targetCurrency ON exchange_rates(targetCurrency)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exchange_rates_effectiveDateJalali ON exchange_rates(effectiveDateJalali)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS treasury_currency_balances (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        accountType TEXT NOT NULL,
+                        accountId INTEGER NOT NULL,
+                        currencyCode TEXT NOT NULL,
+                        balance REAL NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_treasury_currency_balances_accountType ON treasury_currency_balances(accountType)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_treasury_currency_balances_accountId ON treasury_currency_balances(accountId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_treasury_currency_balances_currencyCode ON treasury_currency_balances(currencyCode)")
+
+                db.execSQL("ALTER TABLE invoices ADD COLUMN currencyCode TEXT NOT NULL DEFAULT 'TOMAN'")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN currencyRateToBase REAL NOT NULL DEFAULT 1.0")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN totalAmountInBase INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN cashAmountInBase INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN posAmountInBase INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN creditAmountInBase INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE invoices ADD COLUMN chequeAmountInBase INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("UPDATE invoices SET totalAmountInBase = totalAmount, cashAmountInBase = cashAmount, posAmountInBase = posAmount, creditAmountInBase = creditAmount, chequeAmountInBase = chequeAmount")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -195,7 +246,7 @@ abstract class AppDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

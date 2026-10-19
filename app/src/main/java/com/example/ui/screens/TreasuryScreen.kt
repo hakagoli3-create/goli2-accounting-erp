@@ -97,6 +97,12 @@ import com.example.data.model.AppSecurityAndSettingsManager
 import com.example.data.model.BankAccountEntity
 import com.example.data.model.CashDeskEntity
 import com.example.data.model.ChequeEntity
+import com.example.data.model.CurrencyItem
+import com.example.data.model.TreasuryCurrencyBalanceEntity
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CurrencyExchange
 import com.example.ui.theme.AccountingCreditRed
 import com.example.ui.theme.AccountingDebitGreen
 import com.example.ui.theme.CleanBackground
@@ -133,6 +139,7 @@ fun TreasuryScreen(
     val context = LocalContext.current
     val securityManager = remember { AppSecurityAndSettingsManager.getInstance(context) }
     val currentRole by securityManager.currentRole.collectAsStateWithLifecycle()
+    val currencies by securityManager.currencies.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("نقدینگی و حساب‌ها", "گردش حساب و تراکنش‌ها", "چک‌های صیادی", "عملیات و گزارش‌ها")
@@ -140,6 +147,7 @@ fun TreasuryScreen(
     val cheques by viewModel.allCheques.collectAsStateWithLifecycle()
     val cashDesks by viewModel.allCashDesks.collectAsStateWithLifecycle()
     val bankAccounts by viewModel.allBankAccounts.collectAsStateWithLifecycle()
+    val currencyBalances by viewModel.allCurrencyBalances.collectAsStateWithLifecycle()
     val totalCash by viewModel.totalCashBalance.collectAsStateWithLifecycle()
     val totalBank by viewModel.totalBankBalance.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
@@ -343,6 +351,7 @@ fun TreasuryScreen(
                         0 -> LiquidityAndAccountsContent(
                             cashDesks = cashDesks,
                             bankAccounts = bankAccounts,
+                            currencyBalances = currencyBalances,
                             totalCash = safeTotalCash,
                             totalBank = safeTotalBank,
                             totalLiquidity = totalLiquidity,
@@ -499,9 +508,29 @@ fun TreasuryScreen(
             TransferFundsDialog(
                 cashDesks = cashDesks,
                 bankAccounts = bankAccounts,
+                currencyBalances = currencyBalances,
+                currencies = currencies,
                 onDismiss = { showTransferDialog = false },
-                onConfirm = { fromType, fromId, toType, toId, amount, notes ->
-                    viewModel.transferFunds(fromType, fromId, toType, toId, amount, notes) {
+                onConfirm = { fromType, fromId, fromCurr, fromAmt, toType, toId, toCurr, toAmt, rate, fee, tracking, notes ->
+                    val fromRateToBase = currencies.find { it.code.equals(fromCurr, ignoreCase = true) }?.exchangeRateToBase ?: (if (fromCurr == "TOMAN") 1.0 else rate)
+                    val toRateToBase = currencies.find { it.code.equals(toCurr, ignoreCase = true) }?.exchangeRateToBase ?: (if (toCurr == "TOMAN") 1.0 else rate)
+
+                    viewModel.transferFundsMultiCurrency(
+                        fromType = fromType,
+                        fromId = fromId,
+                        fromCurrency = fromCurr,
+                        fromAmount = fromAmt,
+                        toType = toType,
+                        toId = toId,
+                        toCurrency = toCurr,
+                        toAmount = toAmt,
+                        exchangeRate = rate,
+                        feeAmount = fee,
+                        trackingNumber = tracking,
+                        notes = notes,
+                        rateToBaseFrom = fromRateToBase,
+                        rateToBaseTo = toRateToBase
+                    ) {
                         showTransferDialog = false
                     }
                 }
@@ -530,6 +559,7 @@ fun TreasuryScreen(
 private fun LiquidityAndAccountsContent(
     cashDesks: List<CashDeskEntity>,
     bankAccounts: List<BankAccountEntity>,
+    currencyBalances: List<TreasuryCurrencyBalanceEntity> = emptyList(),
     totalCash: Long,
     totalBank: Long,
     totalLiquidity: Long,
@@ -646,6 +676,117 @@ private fun LiquidityAndAccountsContent(
                                 fontWeight = FontWeight.Bold,
                                 color = AccountingDebitGreen
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ۱-ب: تفکیک و موجودی ارزی خزانه‌داری (صندوق و بانک)
+        val nonZeroBalances = currencyBalances.filter { it.balance != 0.0 }
+        if (nonZeroBalances.isNotEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = CleanCard,
+                    border = BorderStroke(1.dp, CleanBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MatteGold.copy(alpha = 0.15f),
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.CurrencyExchange,
+                                            contentDescription = null,
+                                            tint = MatteGold,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "موجودی تفکیکی ارزی خزانه‌داری",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = NavyPrimary
+                                    )
+                                    Text(
+                                        text = "موجودی‌های ارزی ثبت‌شده به تفکیک در صندوق‌ها و حساب‌های بانکی",
+                                        fontSize = 10.sp,
+                                        color = TextDarkSecondary
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        val currencyTotals = nonZeroBalances
+                            .groupBy { it.currencyCode }
+                            .mapValues { entry -> entry.value.sumOf { it.balance } }
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                        ) {
+                            items(currencyTotals.entries.toList(), key = { it.key }) { (code, total) ->
+                                val sym = when (code) {
+                                    "USD" -> "$"
+                                    "EUR" -> "€"
+                                    "TRY" -> "₺"
+                                    "AED" -> "درهم"
+                                    "IQD" -> "دینار"
+                                    "TOMAN" -> "تومان"
+                                    else -> code
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (code == "TOMAN") NavyPrimary.copy(alpha = 0.08f) else MatteGold.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, if (code == "TOMAN") NavyPrimary.copy(alpha = 0.2f) else MatteGold.copy(alpha = 0.3f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = code,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = NavyPrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "($sym)",
+                                                fontSize = 10.sp,
+                                                color = TextDarkSecondary
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        val formatted = if (total % 1.0 == 0.0) {
+                                            NumberFormatUtils.formatPriceOnlyNumber(total.toLong())
+                                        } else {
+                                            NumberFormatUtils.toPersianDigits(String.format(java.util.Locale.US, "%,.2f", total))
+                                        }
+                                        Text(
+                                            text = "$formatted $sym",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 13.sp,
+                                            color = if (total >= 0) AccountingDebitGreen else AccountingCreditRed
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -774,8 +915,10 @@ private fun LiquidityAndAccountsContent(
             }
         } else {
             items(bankAccounts, key = { "bank_${it.id}" }) { acc ->
+                val accBalances = currencyBalances.filter { it.accountType == "BANK" && it.accountId == acc.id && it.balance != 0.0 }
                 BankAccountCardItem(
                     account = acc,
+                    currencyBalances = accBalances,
                     canManage = canManage,
                     onEdit = { onEditBank(acc) },
                     onDelete = { onDeleteBank(acc) }
@@ -826,8 +969,10 @@ private fun LiquidityAndAccountsContent(
             }
         } else {
             items(cashDesks, key = { "cash_${it.id}" }) { desk ->
+                val deskBalances = currencyBalances.filter { it.accountType == "CASH" && it.accountId == desk.id && it.balance != 0.0 }
                 CashDeskCardItem(
                     desk = desk,
+                    currencyBalances = deskBalances,
                     canManage = canManage,
                     onEdit = { onEditCashDesk(desk) },
                     onDelete = { onDeleteCashDesk(desk) }
@@ -1206,6 +1351,7 @@ private fun TransactionCardItem(transaction: TreasuryTransaction) {
 @Composable
 private fun BankAccountCardItem(
     account: BankAccountEntity,
+    currencyBalances: List<TreasuryCurrencyBalanceEntity> = emptyList(),
     canManage: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -1300,6 +1446,45 @@ private fun BankAccountCardItem(
                 }
             }
 
+            // موجودی‌های تفکیکی ارزی حساب بانکی
+            if (currencyBalances.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(currencyBalances, key = { it.currencyCode }) { bal ->
+                        val sym = when (bal.currencyCode) {
+                            "USD" -> "$"
+                            "EUR" -> "€"
+                            "TRY" -> "₺"
+                            "AED" -> "درهم"
+                            "IQD" -> "دینار"
+                            "TOMAN" -> "تومان"
+                            else -> bal.currencyCode
+                        }
+                        val formatted = if (bal.balance % 1.0 == 0.0) {
+                            NumberFormatUtils.formatPriceOnlyNumber(bal.balance.toLong())
+                        } else {
+                            NumberFormatUtils.toPersianDigits(String.format(java.util.Locale.US, "%,.2f", bal.balance))
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MatteGold.copy(alpha = 0.12f),
+                            border = BorderStroke(0.5.dp, MatteGold.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "${bal.currencyCode}: $formatted $sym",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavyPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleanBorder)
 
             Row(
@@ -1308,7 +1493,7 @@ private fun BankAccountCardItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(text = "موجودی حساب:", fontSize = 10.sp, color = TextDarkSecondary)
+                    Text(text = "موجودی پایه حساب:", fontSize = 10.sp, color = TextDarkSecondary)
                     Text(
                         text = NumberFormatUtils.formatPrice(account.currentBalance),
                         style = MaterialTheme.typography.bodyLarge.copy(
@@ -1340,6 +1525,7 @@ private fun BankAccountCardItem(
 @Composable
 private fun CashDeskCardItem(
     desk: CashDeskEntity,
+    currencyBalances: List<TreasuryCurrencyBalanceEntity> = emptyList(),
     canManage: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -1385,6 +1571,45 @@ private fun CashDeskCardItem(
                 }
             }
 
+            // موجودی‌های تفکیکی ارزی صندوق نقدی
+            if (currencyBalances.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(currencyBalances, key = { it.currencyCode }) { bal ->
+                        val sym = when (bal.currencyCode) {
+                            "USD" -> "$"
+                            "EUR" -> "€"
+                            "TRY" -> "₺"
+                            "AED" -> "درهم"
+                            "IQD" -> "دینار"
+                            "TOMAN" -> "تومان"
+                            else -> bal.currencyCode
+                        }
+                        val formatted = if (bal.balance % 1.0 == 0.0) {
+                            NumberFormatUtils.formatPriceOnlyNumber(bal.balance.toLong())
+                        } else {
+                            NumberFormatUtils.toPersianDigits(String.format(java.util.Locale.US, "%,.2f", bal.balance))
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MatteGold.copy(alpha = 0.12f),
+                            border = BorderStroke(0.5.dp, MatteGold.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "${bal.currencyCode}: $formatted $sym",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavyPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleanBorder)
 
             Row(
@@ -1393,7 +1618,7 @@ private fun CashDeskCardItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(text = "موجودی صندوق نقدی:", fontSize = 10.sp, color = TextDarkSecondary)
+                    Text(text = "موجودی پایه صندوق:", fontSize = 10.sp, color = TextDarkSecondary)
                     Text(
                         text = NumberFormatUtils.formatPrice(desk.currentBalance),
                         style = MaterialTheme.typography.bodyLarge.copy(
@@ -2323,77 +2548,540 @@ private fun TreasuryActionDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransferFundsDialog(
     cashDesks: List<CashDeskEntity>,
     bankAccounts: List<BankAccountEntity>,
+    currencyBalances: List<TreasuryCurrencyBalanceEntity>,
+    currencies: List<CurrencyItem>,
     onDismiss: () -> Unit,
-    onConfirm: (fromType: String, fromId: Long, toType: String, toId: Long, amount: Long, notes: String) -> Unit
+    onConfirm: (
+        fromType: String,
+        fromId: Long,
+        fromCurrency: String,
+        fromAmount: Double,
+        toType: String,
+        toId: Long,
+        toCurrency: String,
+        toAmount: Double,
+        exchangeRate: Double,
+        feeAmount: Long,
+        trackingNumber: String,
+        notes: String
+    ) -> Unit
 ) {
-    var fromType by remember { mutableStateOf("BANK") }
-    var toType by remember { mutableStateOf("CASH") }
-    var fromId by remember { mutableStateOf(bankAccounts.firstOrNull()?.id ?: 0L) }
-    var toId by remember { mutableStateOf(cashDesks.firstOrNull()?.id ?: 0L) }
+    var fromType by remember { mutableStateOf("BANK") } // "BANK" or "CASH"
+    var toType by remember { mutableStateOf("CASH") }   // "BANK" or "CASH"
+
+    var selectedFromId by remember { mutableStateOf(bankAccounts.firstOrNull()?.id ?: 1L) }
+    var selectedToId by remember { mutableStateOf(cashDesks.firstOrNull()?.id ?: 1L) }
+
+    var fromDropdownExpanded by remember { mutableStateOf(false) }
+    var toDropdownExpanded by remember { mutableStateOf(false) }
+
+    val activeCurrencies = remember(currencies) {
+        val standard = listOf("TOMAN", "USD", "EUR", "TRY", "AED", "IQD")
+        (standard + currencies.map { it.code }).distinct()
+    }
+    var selectedCurrency by remember { mutableStateOf("TOMAN") }
+
     var amountText by remember { mutableStateOf("") }
+    var exchangeRateText by remember { mutableStateOf("1.0") }
+    var feeText by remember { mutableStateOf("") }
+    var trackingNumber by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+
+    // Update default selected accounts when switching types
+    LaunchedEffect(fromType) {
+        if (fromType == "BANK") {
+            selectedFromId = bankAccounts.firstOrNull()?.id ?: 1L
+        } else {
+            selectedFromId = cashDesks.firstOrNull()?.id ?: 1L
+        }
+    }
+
+    LaunchedEffect(toType) {
+        if (toType == "CASH") {
+            selectedToId = cashDesks.firstOrNull()?.id ?: 1L
+        } else {
+            selectedToId = bankAccounts.firstOrNull()?.id ?: 1L
+        }
+    }
+
+    // Auto-fill exchange rate from currency settings if available
+    LaunchedEffect(selectedCurrency) {
+        if (selectedCurrency == "TOMAN") {
+            exchangeRateText = "1.0"
+        } else {
+            val curr = currencies.find { it.code.equals(selectedCurrency, ignoreCase = true) }
+            val rate = if (curr != null && curr.exchangeRateToBase > 0) curr.exchangeRateToBase else when (selectedCurrency) {
+                "USD" -> 92000.0
+                "EUR" -> 98500.0
+                "TRY" -> 2850.0
+                "AED" -> 25100.0
+                "IQD" -> 70.0
+                else -> 1.0
+            }
+            exchangeRateText = rate.toLong().toString()
+        }
+    }
+
+    val fromAccountName = if (fromType == "BANK") {
+        bankAccounts.find { it.id == selectedFromId }?.let { "${it.bankName} ${if (it.branch.isNotBlank()) "(${it.branch})" else ""}" } ?: "بانک مبدأ"
+    } else {
+        cashDesks.find { it.id == selectedFromId }?.name ?: "صندوق مبدأ"
+    }
+
+    val toAccountName = if (toType == "BANK") {
+        bankAccounts.find { it.id == selectedToId }?.let { "${it.bankName} ${if (it.branch.isNotBlank()) "(${it.branch})" else ""}" } ?: "بانک مقصد"
+    } else {
+        cashDesks.find { it.id == selectedToId }?.name ?: "صندوق مقصد"
+    }
+
+    // Available balance in selected currency in source account
+    val sourceBalanceInSelectedCurrency = remember(fromType, selectedFromId, selectedCurrency, currencyBalances, bankAccounts, cashDesks) {
+        if (selectedCurrency == "TOMAN") {
+            if (fromType == "BANK") {
+                bankAccounts.find { it.id == selectedFromId }?.currentBalance?.toDouble() ?: 0.0
+            } else {
+                cashDesks.find { it.id == selectedFromId }?.currentBalance?.toDouble() ?: 0.0
+            }
+        } else {
+            currencyBalances.find {
+                it.accountType == fromType && it.accountId == selectedFromId && it.currencyCode.equals(selectedCurrency, ignoreCase = true)
+            }?.balance ?: 0.0
+        }
+    }
+
+    val isSameAccount = fromType == toType && selectedFromId == selectedToId
+    val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
+    val parsedRate = exchangeRateText.toDoubleOrNull() ?: 1.0
+    val parsedFee = feeText.toLongOrNull() ?: 0L
+    val equivalentInBase = if (selectedCurrency == "TOMAN") parsedAmount.toLong() else (parsedAmount * parsedRate).toLong()
+
+    val hasInsufficientFunds = parsedAmount > 0 && sourceBalanceInSelectedCurrency > 0 && parsedAmount > sourceBalanceInSelectedCurrency
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.fillMaxWidth(0.92f).padding(vertical = 24.dp),
-            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 16.dp),
+            shape = RoundedCornerShape(22.dp),
             color = CleanCard,
-            border = BorderStroke(1.dp, CleanBorder)
+            border = BorderStroke(1.dp, CleanBorder),
+            tonalElevation = 8.dp
         ) {
             Column(
-                modifier = Modifier.padding(20.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("انتقال وجه بین حساب‌ها و صندوق‌ها", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = NavyPrimary))
-
-                Text("مبدا انتقال (خروج وجه):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = fromType == "BANK", onClick = { fromType = "BANK" }, label = { Text("از بانک") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = fromType == "CASH", onClick = { fromType = "CASH" }, label = { Text("از صندوق") }, modifier = Modifier.weight(1f))
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MatteGold.copy(alpha = 0.15f),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = MatteGold, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "حواله و انتقال بین حساب‌ها و صندوق‌ها",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = NavyPrimary)
+                            )
+                            Text(
+                                text = "مدیریت حرفه‌ای جابجایی وجه، تسعیر ارز و صدور خودکار سند حسابداری",
+                                fontSize = 11.sp,
+                                color = TextDarkSecondary
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "بستن", tint = TextDarkSecondary)
+                    }
                 }
 
-                Text("مقصد انتقال (ورود وجه):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = toType == "CASH", onClick = { toType = "CASH" }, label = { Text("به صندوق") }, modifier = Modifier.weight(1f))
-                    FilterChip(selected = toType == "BANK", onClick = { toType = "BANK" }, label = { Text("به بانک") }, modifier = Modifier.weight(1f))
+                HorizontalDivider(color = CleanBorder)
+
+                // ۱. مبدأ انتقال (خروج وجه)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = CleanSurface),
+                    border = BorderStroke(1.dp, CleanBorder)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = null, tint = AccountingCreditRed, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("مبدأ انتقال (خروج وجه):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = fromType == "BANK",
+                                onClick = { fromType = "BANK" },
+                                label = { Text("حساب بانکی") },
+                                leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = fromType == "CASH",
+                                onClick = { fromType = "CASH" },
+                                label = { Text("صندوق نقدی") },
+                                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        // انتخاب حساب مبدأ از منو
+                        ExposedDropdownMenuBox(
+                            expanded = fromDropdownExpanded,
+                            onExpandedChange = { fromDropdownExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = fromAccountName,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(if (fromType == "BANK") "انتخاب بانک مبدأ" else "انتخاب صندوق مبدأ") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fromDropdownExpanded) },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = NavyPrimary)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = fromDropdownExpanded,
+                                onDismissRequest = { fromDropdownExpanded = false }
+                            ) {
+                                if (fromType == "BANK") {
+                                    bankAccounts.forEach { acc ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(acc.bankName, fontWeight = FontWeight.Bold)
+                                                    Text("موجودی: ${NumberFormatUtils.formatPrice(acc.currentBalance)}", fontSize = 11.sp, color = TextDarkSecondary)
+                                                }
+                                            },
+                                            onClick = {
+                                                selectedFromId = acc.id
+                                                fromDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                } else {
+                                    cashDesks.forEach { desk ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(desk.name, fontWeight = FontWeight.Bold)
+                                                    Text("موجودی: ${NumberFormatUtils.formatPrice(desk.currentBalance)}", fontSize = 11.sp, color = TextDarkSecondary)
+                                                }
+                                            },
+                                            onClick = {
+                                                selectedFromId = desk.id
+                                                fromDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // نمایش مانده موجودی مبدأ به ارز انتخابی
+                        val balFormatted = if (sourceBalanceInSelectedCurrency % 1.0 == 0.0) {
+                            NumberFormatUtils.formatPriceOnlyNumber(sourceBalanceInSelectedCurrency.toLong())
+                        } else {
+                            NumberFormatUtils.toPersianDigits(String.format(java.util.Locale.US, "%,.2f", sourceBalanceInSelectedCurrency))
+                        }
+                        Text(
+                            text = "موجودی قابل انتقال در این مبدأ: $balFormatted $selectedCurrency",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (hasInsufficientFunds) AccountingCreditRed else NavyPrimary
+                        )
+                    }
                 }
 
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("مبلغ انتقال (تومان) *") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // ۲. مقصد انتقال (ورود وجه)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = CleanSurface),
+                    border = BorderStroke(1.dp, CleanBorder)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = AccountingDebitGreen, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("مقصد انتقال (ورود وجه):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = toType == "CASH",
+                                onClick = { toType = "CASH" },
+                                label = { Text("صندوق نقدی") },
+                                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = toType == "BANK",
+                                onClick = { toType = "BANK" },
+                                label = { Text("حساب بانکی") },
+                                leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        ExposedDropdownMenuBox(
+                            expanded = toDropdownExpanded,
+                            onExpandedChange = { toDropdownExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = toAccountName,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(if (toType == "CASH") "انتخاب صندوق مقصد" else "انتخاب بانک مقصد") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = toDropdownExpanded) },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = NavyPrimary)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = toDropdownExpanded,
+                                onDismissRequest = { toDropdownExpanded = false }
+                            ) {
+                                if (toType == "CASH") {
+                                    cashDesks.forEach { desk ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(desk.name, fontWeight = FontWeight.Bold)
+                                                    Text("موجودی فعلی: ${NumberFormatUtils.formatPrice(desk.currentBalance)}", fontSize = 11.sp, color = TextDarkSecondary)
+                                                }
+                                            },
+                                            onClick = {
+                                                selectedToId = desk.id
+                                                toDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                } else {
+                                    bankAccounts.forEach { acc ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(acc.bankName, fontWeight = FontWeight.Bold)
+                                                    Text("موجودی فعلی: ${NumberFormatUtils.formatPrice(acc.currentBalance)}", fontSize = 11.sp, color = TextDarkSecondary)
+                                                }
+                                            },
+                                            onClick = {
+                                                selectedToId = acc.id
+                                                toDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isSameAccount) {
+                            Text(
+                                text = "هشدار: حساب مبدأ و مقصد یکسان هستند! لطفاً حساب متفاوتی را انتخاب نمایید.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccountingCreditRed
+                            )
+                        }
+                    }
+                }
+
+                // ۳. انتخاب ارز انتقال
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("ارز انتقال وجه:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(activeCurrencies, key = { it }) { code ->
+                            val label = when (code) {
+                                "TOMAN" -> "تومان (پایه)"
+                                "USD" -> "دلار ($)"
+                                "EUR" -> "یورو (€)"
+                                "TRY" -> "لیر (₺)"
+                                "AED" -> "درهم"
+                                "IQD" -> "دینار"
+                                else -> code
+                            }
+                            FilterChip(
+                                selected = selectedCurrency == code,
+                                onClick = { selectedCurrency = code },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+
+                // ۴. مبلغ انتقال و نرخ تسعیر
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("مبلغ انتقال ($selectedCurrency) *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.3f).testTag("transfer_amount_input")
+                    )
+
+                    if (selectedCurrency != "TOMAN") {
+                        OutlinedTextField(
+                            value = exchangeRateText,
+                            onValueChange = { exchangeRateText = it },
+                            label = { Text("نرخ تسعیر (تومان)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                // نمایش معادل ریالی / تومانی برای ارزهای خارجی
+                if (selectedCurrency != "TOMAN" && parsedAmount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MatteGold.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, MatteGold.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("معادل ارزش در دفاتر (تومان):", fontSize = 11.sp, color = NavyPrimary)
+                            Text(
+                                text = NumberFormatUtils.formatPrice(equivalentInBase),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = NavyPrimary
+                            )
+                        }
+                    }
+                }
+
+                // هشدار کسری موجودی مبدأ
+                if (hasInsufficientFunds) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = AccountingCreditRed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, AccountingCreditRed.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "هشدار: مبلغ درخواستی از موجودی ارزی ثبت‌شده در مبدأ بیشتر است. این عملیات باعث منفی شدن موجودی مبدأ می‌گردد.",
+                            fontSize = 11.sp,
+                            color = AccountingCreditRed,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                // ۵. اطلاعات تکمیلی: شماره پیگیری و کارمزد و توضیحات
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = trackingNumber,
+                        onValueChange = { trackingNumber = it },
+                        label = { Text("کد پیگیری / ارجاع فیش") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    OutlinedTextField(
+                        value = feeText,
+                        onValueChange = { feeText = it },
+                        label = { Text("کارمزد بانکی (تومان)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("توضیحات و بابت انتقال") },
+                    label = { Text("بابت و شرح سند انتقال") },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                // ۶. کارت خلاصه و فلش انتقال
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = NavyPrimary.copy(alpha = 0.05f),
+                    border = BorderStroke(1.dp, NavyPrimary.copy(alpha = 0.15f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("از: $fromAccountName", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccountingCreditRed)
+                        }
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = MatteGold, modifier = Modifier.size(20.dp))
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text("به: $toAccountName", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccountingDebitGreen)
+                        }
+                    }
+                }
 
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // دکمه ثبت
                 Button(
                     onClick = {
-                        val amount = amountText.toLongOrNull() ?: 0L
-                        if (amount <= 0) return@Button
-                        val fId = if (fromType == "BANK") (bankAccounts.firstOrNull()?.id ?: 1L) else (cashDesks.firstOrNull()?.id ?: 1L)
-                        val tId = if (toType == "CASH") (cashDesks.firstOrNull()?.id ?: 1L) else (bankAccounts.firstOrNull()?.id ?: 1L)
-                        onConfirm(fromType, fId, toType, tId, amount, notes)
+                        if (parsedAmount <= 0 || isSameAccount) return@Button
+                        onConfirm(
+                            fromType,
+                            selectedFromId,
+                            selectedCurrency,
+                            parsedAmount,
+                            toType,
+                            selectedToId,
+                            selectedCurrency,
+                            parsedAmount,
+                            parsedRate,
+                            parsedFee,
+                            trackingNumber,
+                            notes
+                        )
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    enabled = parsedAmount > 0 && !isSameAccount,
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    modifier = Modifier.fillMaxWidth().height(50.dp).testTag("confirm_transfer_btn")
                 ) {
-                    Text("ثبت و تایید انتقال وجه", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تأیید و ثبت انتقال بین حساب‌ها", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }

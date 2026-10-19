@@ -135,6 +135,8 @@ fun PosScreen(
     val pricingMode by viewModel.pricingMode.collectAsStateWithLifecycle()
     val cashDesks by viewModel.allCashDesks.collectAsStateWithLifecycle()
     val bankAccounts by viewModel.allBankAccounts.collectAsStateWithLifecycle()
+    val selectedCurrencyCode by viewModel.selectedCurrencyCode.collectAsStateWithLifecycle()
+    val invoiceCurrencyRate by viewModel.invoiceCurrencyRate.collectAsStateWithLifecycle()
 
     val previewReceipt by viewModel.previewReceiptText.collectAsStateWithLifecycle()
     val alertMessage by viewModel.alertMessage.collectAsStateWithLifecycle()
@@ -645,6 +647,8 @@ fun PosScreen(
             cashDesks = cashDesks,
             bankAccounts = bankAccounts,
             selectedParty = selectedParty,
+            currencyCode = selectedCurrencyCode,
+            currencyRateToBase = invoiceCurrencyRate,
             onDismiss = { showSettlementDialog = false },
             onConfirmSettlement = { paymentType, cash, pos, cheque, credit, deskId, bankId, chNum, sayad, due, bankName, notes ->
                 viewModel.checkoutAdvanced(

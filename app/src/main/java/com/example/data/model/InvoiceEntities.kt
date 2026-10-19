@@ -41,7 +41,14 @@ data class InvoiceEntity(
     val directExpenseType: String = "", // شرح یا سرفصل هزینه مستقیم
     val isPaid: Boolean = true,
     val status: String = "FINAL", // "FINAL", "PROFORMA" (پیش فاکتور), or "VOID" (ابطال شده)
-    val notes: String = ""
+    val notes: String = "",
+    val currencyCode: String = "TOMAN",
+    val currencyRateToBase: Double = 1.0,
+    val totalAmountInBase: Long = totalAmount,
+    val cashAmountInBase: Long = cashAmount,
+    val posAmountInBase: Long = posAmount,
+    val creditAmountInBase: Long = creditAmount,
+    val chequeAmountInBase: Long = chequeAmount
 )
 
 /**

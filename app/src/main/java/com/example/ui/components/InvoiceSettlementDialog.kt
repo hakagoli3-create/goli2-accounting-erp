@@ -72,6 +72,9 @@ fun InvoiceSettlementDialog(
     cashDesks: List<CashDeskEntity>,
     bankAccounts: List<BankAccountEntity>,
     selectedParty: PartyEntity?,
+    currencyCode: String = "TOMAN",
+    currencySymbol: String = "تومان",
+    currencyRateToBase: Double = 1.0,
     onDismiss: () -> Unit,
     onConfirmSettlement: (
         paymentType: String,

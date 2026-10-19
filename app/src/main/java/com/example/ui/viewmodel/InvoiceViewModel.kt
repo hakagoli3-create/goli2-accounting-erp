@@ -141,6 +141,18 @@ class InvoiceViewModel(
         _selectedPrintFormat.value = format
     }
 
+    // Multi-Currency selection for Invoices
+    private val _selectedCurrencyCode = MutableStateFlow("TOMAN")
+    val selectedCurrencyCode: StateFlow<String> = _selectedCurrencyCode.asStateFlow()
+
+    private val _invoiceCurrencyRate = MutableStateFlow(1.0)
+    val invoiceCurrencyRate: StateFlow<Double> = _invoiceCurrencyRate.asStateFlow()
+
+    fun setInvoiceCurrency(code: String, rate: Double) {
+        _selectedCurrencyCode.value = code
+        _invoiceCurrencyRate.value = if (rate > 0) rate else 1.0
+    }
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
@@ -175,6 +187,8 @@ class InvoiceViewModel(
         _directExpenseType.value = inv.directExpenseType.ifBlank { "کرایه حمل و باربری" }
         _selectedCashDeskId.value = inv.cashDeskId
         _selectedBankAccountId.value = inv.bankAccountId
+        _selectedCurrencyCode.value = inv.currencyCode
+        _invoiceCurrencyRate.value = if (inv.currencyRateToBase > 0) inv.currencyRateToBase else 1.0
 
         // Retrieve existing party or create reliable fallback so party info is never lost or blank
         val foundParty = allParties.value.find { it.id == inv.partyId }
@@ -389,6 +403,8 @@ class InvoiceViewModel(
         _directExpenseAmount.value = 0L
         _issueAsProforma.value = false
         _selectedParty.value = null
+        _selectedCurrencyCode.value = "TOMAN"
+        _invoiceCurrencyRate.value = 1.0
     }
 
     fun selectParty(party: PartyEntity?) {
@@ -609,6 +625,14 @@ class InvoiceViewModel(
                 else -> if (paymentType == "CREDIT" || party != null || _editingPartyId.value != null) "SALE" else "POS_SALE"
             }
 
+            val curCode = _selectedCurrencyCode.value
+            val curRate = _invoiceCurrencyRate.value
+            val totalInBase = if (curCode == "TOMAN" || curRate == 1.0) total else (total * curRate).toLong()
+            val cashInBase = if (curCode == "TOMAN" || curRate == 1.0) effectiveCash else (effectiveCash * curRate).toLong()
+            val posInBase = if (curCode == "TOMAN" || curRate == 1.0) effectivePos else (effectivePos * curRate).toLong()
+            val creditInBase = if (curCode == "TOMAN" || curRate == 1.0) effectiveCredit else (effectiveCredit * curRate).toLong()
+            val chequeInBase = if (curCode == "TOMAN" || curRate == 1.0) effectiveCheque else (effectiveCheque * curRate).toLong()
+
             val invoice = InvoiceEntity(
                 invoiceNumber = nextNumber,
                 invoiceType = effectiveInvoiceType,
@@ -635,7 +659,14 @@ class InvoiceViewModel(
                 directExpenseType = _directExpenseType.value,
                 isPaid = effectiveCredit == 0L,
                 status = if (_issueAsProforma.value) "PROFORMA" else "FINAL",
-                notes = notes
+                notes = notes,
+                currencyCode = curCode,
+                currencyRateToBase = curRate,
+                totalAmountInBase = totalInBase,
+                cashAmountInBase = cashInBase,
+                posAmountInBase = posInBase,
+                creditAmountInBase = creditInBase,
+                chequeAmountInBase = chequeInBase
             )
 
             val invoiceItems = items.map { cartItem ->

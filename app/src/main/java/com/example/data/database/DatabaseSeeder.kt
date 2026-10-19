@@ -519,6 +519,92 @@ object DatabaseSeeder {
 
         // 13. Default System Users (مدیر کل، فروشنده، ویزیتور)
         ensureDefaultUsers(db)
+
+        // 14. Initial Exchange Rates
+        try {
+            val initialRates = listOf(
+                com.example.data.model.ExchangeRateEntity(
+                    id = 1,
+                    sourceCurrency = "USD",
+                    targetCurrency = "TOMAN",
+                    rate = 92000.0,
+                    inverseRate = 1.0 / 92000.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "نرخ ثبت‌شده بازار و صرافی",
+                    recordedBy = "مدیر سیستم"
+                ),
+                com.example.data.model.ExchangeRateEntity(
+                    id = 2,
+                    sourceCurrency = "EUR",
+                    targetCurrency = "TOMAN",
+                    rate = 101000.0,
+                    inverseRate = 1.0 / 101000.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "نرخ حواله یورو",
+                    recordedBy = "مدیر سیستم"
+                ),
+                com.example.data.model.ExchangeRateEntity(
+                    id = 3,
+                    sourceCurrency = "TRY",
+                    targetCurrency = "TOMAN",
+                    rate = 2650.0,
+                    inverseRate = 1.0 / 2650.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "نرخ نقدی لیر ترکیه",
+                    recordedBy = "مدیر سیستم"
+                ),
+                com.example.data.model.ExchangeRateEntity(
+                    id = 4,
+                    sourceCurrency = "IQD",
+                    targetCurrency = "TOMAN",
+                    rate = 62.0,
+                    inverseRate = 1.0 / 62.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "نرخ دینار عراق تجاری",
+                    recordedBy = "مدیر سیستم"
+                ),
+                com.example.data.model.ExchangeRateEntity(
+                    id = 5,
+                    sourceCurrency = "AED",
+                    targetCurrency = "TOMAN",
+                    rate = 25100.0,
+                    inverseRate = 1.0 / 25100.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "حواله درهم امارات",
+                    recordedBy = "مدیر سیستم"
+                ),
+                com.example.data.model.ExchangeRateEntity(
+                    id = 6,
+                    sourceCurrency = "IRR",
+                    targetCurrency = "TOMAN",
+                    rate = 0.1,
+                    inverseRate = 10.0,
+                    effectiveDateJalali = todayStr,
+                    notes = "نسبت ثابت ریال به تومان",
+                    recordedBy = "سیستم خودکار"
+                )
+            )
+            db.exchangeRateDao().insertRates(initialRates)
+        } catch (_: Exception) {}
+
+        // 15. Initial Multi-Currency Treasury Balances
+        try {
+            val initialBalances = listOf(
+                com.example.data.model.TreasuryCurrencyBalanceEntity(1, "CASH", 1, "TOMAN", 32500000.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(2, "CASH", 1, "USD", 2500.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(3, "CASH", 1, "EUR", 1200.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(4, "CASH", 1, "TRY", 15000.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(5, "CASH", 2, "TOMAN", 8400000.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(6, "CASH", 2, "USD", 450.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(7, "BANK", 1, "TOMAN", 145000000.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(8, "BANK", 1, "EUR", 3500.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(9, "BANK", 2, "TOMAN", 58200000.0),
+                com.example.data.model.TreasuryCurrencyBalanceEntity(10, "BANK", 2, "AED", 10000.0)
+            )
+            for (bal in initialBalances) {
+                db.treasuryDao().insertOrUpdateCurrencyBalance(bal)
+            }
+        } catch (_: Exception) {}
     }
 
     suspend fun ensureDefaultUsers(db: AppDatabase) {
