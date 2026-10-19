@@ -6,9 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.model.BankAccountEntity
 import com.example.data.model.CashDeskEntity
 import com.example.data.model.ChequeEntity
+import com.example.data.model.ExpenseEntity
+import com.example.data.model.IncomeEntity
 import com.example.data.model.JournalEntryEntity
 import com.example.data.model.JournalItemEntity
 import com.example.data.repository.AccountingRepository
+import com.example.data.repository.ExpenseAndIncomeRepository
 import com.example.data.repository.TreasuryRepository
 import com.example.util.ExportHelper
 import com.example.util.JalaliDate
@@ -17,12 +20,44 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/**
+ * مدل داده‌ای تراکنش نقدینگی و گردش حساب‌های خزانه
+ */
+data class TreasuryTransaction(
+    val id: String,
+    val type: TransactionType,
+    val title: String,
+    val category: String,
+    val amount: Long,
+    val jalaliDate: String,
+    val timestamp: Long,
+    val accountName: String,
+    val method: String, // "CASH" or "BANK"
+    val referenceNumber: String = "",
+    val notes: String = ""
+)
+
+enum class TransactionType(val persianLabel: String) {
+    INFLOW("دریافت / واریز"),
+    OUTFLOW("پرداخت / برداشت"),
+    TRANSFER("انتقال وجه")
+}
+
+enum class TreasuryDateFilter(val title: String) {
+    ALL("همه تاریخ‌ها"),
+    TODAY("امروز"),
+    LAST_7_DAYS("۷ روز اخیر"),
+    THIS_MONTH("ماه جاری")
+}
+
 class TreasuryViewModel(
     private val repository: TreasuryRepository,
-    private val accountingRepo: AccountingRepository
+    private val accountingRepo: AccountingRepository,
+    private val expenseRepo: ExpenseAndIncomeRepository
 ) : ViewModel() {
 
     val allCashDesks: StateFlow<List<CashDeskEntity>> = repository.allCashDesks
@@ -52,6 +87,136 @@ class TreasuryViewModel(
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    // فیلترهای فهرست تراکنش‌ها و گردش حساب
+    private val _transactionSearchQuery = MutableStateFlow("")
+    val transactionSearchQuery: StateFlow<String> = _transactionSearchQuery.asStateFlow()
+
+    private val _selectedDateFilter = MutableStateFlow(TreasuryDateFilter.ALL)
+    val selectedDateFilter: StateFlow<TreasuryDateFilter> = _selectedDateFilter.asStateFlow()
+
+    private val _selectedTypeFilter = MutableStateFlow<TransactionType?>(null)
+    val selectedTypeFilter: StateFlow<TransactionType?> = _selectedTypeFilter.asStateFlow()
+
+    /**
+     * تجمیع واقعی تمام تراکنش‌های مالی، دریافتی‌ها، پرداختی‌ها و اسناد انتقال از دیتابیس
+     */
+    val allTransactions: StateFlow<List<TreasuryTransaction>> = combine(
+        expenseRepo.allExpenses,
+        expenseRepo.allIncomes,
+        accountingRepo.allJournalEntries
+    ) { expenses, incomes, vouchers ->
+        val list = mutableListOf<TreasuryTransaction>()
+
+        incomes.forEach { inc ->
+            list.add(
+                TreasuryTransaction(
+                    id = "INC-${inc.id}",
+                    type = TransactionType.INFLOW,
+                    title = inc.title.ifBlank { "دریافت وجه / درآمد" },
+                    category = inc.categoryTitle.ifBlank { "درآمد عملیاتی" },
+                    amount = inc.amount,
+                    jalaliDate = inc.jalaliDate,
+                    timestamp = inc.timestamp,
+                    accountName = inc.accountName.ifBlank { if (inc.depositMethod == "CASH") "صندوق نقدی" else "حساب بانکی" },
+                    method = inc.depositMethod,
+                    referenceNumber = inc.voucherId?.let { "سند #$it" } ?: "",
+                    notes = inc.notes
+                )
+            )
+        }
+
+        expenses.forEach { exp ->
+            list.add(
+                TreasuryTransaction(
+                    id = "EXP-${exp.id}",
+                    type = TransactionType.OUTFLOW,
+                    title = exp.title.ifBlank { "پرداخت وجه / هزینه" },
+                    category = exp.categoryTitle.ifBlank { "هزینه جاری" },
+                    amount = exp.amount,
+                    jalaliDate = exp.jalaliDate,
+                    timestamp = exp.timestamp,
+                    accountName = exp.accountName.ifBlank { if (exp.paymentMethod == "CASH") "صندوق نقدی" else "حساب بانکی" },
+                    method = exp.paymentMethod,
+                    referenceNumber = exp.voucherId?.let { "سند #$it" } ?: "",
+                    notes = exp.notes
+                )
+            )
+        }
+
+        vouchers.filter { it.description.contains("انتقال") || it.description.contains("سرمایه") }.forEach { v ->
+            val isCapital = v.description.contains("سرمایه")
+            list.add(
+                TreasuryTransaction(
+                    id = "VOUCH-${v.id}",
+                    type = if (isCapital) TransactionType.INFLOW else TransactionType.TRANSFER,
+                    title = v.description,
+                    category = if (isCapital) "سرمایه و آورده" else "انتقال بین حساب‌ها",
+                    amount = 0L,
+                    jalaliDate = v.jalaliDate,
+                    timestamp = v.timestamp,
+                    accountName = if (isCapital) "آورده نقدی شرکا" else "حساب‌های خزانه",
+                    method = "INTERNAL",
+                    referenceNumber = "سند #${v.voucherNumber}",
+                    notes = v.description
+                )
+            )
+        }
+
+        list.sortedByDescending { it.timestamp }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * تراکنش‌های فیلتر شده بر اساس جستجو، فیلتر تاریخ شمسی و نوع تراکنش
+     */
+    val filteredTransactions: StateFlow<List<TreasuryTransaction>> = combine(
+        allTransactions,
+        _transactionSearchQuery,
+        _selectedDateFilter,
+        _selectedTypeFilter
+    ) { transactions, query, dateFilter, typeFilter ->
+        val today = JalaliDate.now()
+        val todayStr = today.toStandardString()
+        val sevenDaysAgo = today.addDays(-7).toStandardString()
+        val currentMonthPrefix = "${today.year}/${today.month.toString().padStart(2, '0')}"
+
+        transactions.filter { tx ->
+            // فیلتر نوع
+            val matchesType = typeFilter == null || tx.type == typeFilter
+
+            // فیلتر تاریخ شمسی
+            val matchesDate = when (dateFilter) {
+                TreasuryDateFilter.ALL -> true
+                TreasuryDateFilter.TODAY -> tx.jalaliDate == todayStr
+                TreasuryDateFilter.LAST_7_DAYS -> tx.jalaliDate >= sevenDaysAgo
+                TreasuryDateFilter.THIS_MONTH -> tx.jalaliDate.startsWith(currentMonthPrefix)
+            }
+
+            // فیلتر جستجو
+            val q = query.trim()
+            val matchesQuery = q.isBlank() ||
+                    tx.title.contains(q, ignoreCase = true) ||
+                    tx.category.contains(q, ignoreCase = true) ||
+                    tx.accountName.contains(q, ignoreCase = true) ||
+                    tx.referenceNumber.contains(q, ignoreCase = true) ||
+                    tx.jalaliDate.contains(q) ||
+                    tx.notes.contains(q, ignoreCase = true)
+
+            matchesType && matchesDate && matchesQuery
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setTransactionSearchQuery(query: String) {
+        _transactionSearchQuery.value = query
+    }
+
+    fun setDateFilter(filter: TreasuryDateFilter) {
+        _selectedDateFilter.value = filter
+    }
+
+    fun setTypeFilter(type: TransactionType?) {
+        _selectedTypeFilter.value = type
+    }
 
     data class ChequeRassResult(
         val totalAmount: Long,
@@ -126,7 +291,7 @@ class TreasuryViewModel(
         viewModelScope.launch {
             try {
                 repository.updateCheque(cheque.copy(status = newStatus))
-                _statusMessage.value = "وضعیت چک به روزرسانی شد."
+                _statusMessage.value = "وضعیت چک به‌روزرسانی شد."
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در تغییر وضعیت چک: ${e.localizedMessage}"
             }
@@ -152,7 +317,7 @@ class TreasuryViewModel(
                 _statusMessage.value = "چک با موفقیت حذف گردید."
                 onSuccess()
             } catch (e: Exception) {
-                _statusMessage.value = "امکان حذف این چک به دلیل داشتن تراکنش‌های وابسته وجود ندارد."
+                _statusMessage.value = "امکان حذف این چک وجود ندارد."
             }
         }
     }
@@ -168,7 +333,7 @@ class TreasuryViewModel(
                         currentBalance = initialBalance
                     )
                 )
-                _statusMessage.value = "صندوق جدید $name اضافه شد."
+                _statusMessage.value = "صندوق جدید $name با موفقیت تعریف شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در افزودن صندوق: ${e.localizedMessage}"
@@ -180,7 +345,7 @@ class TreasuryViewModel(
         viewModelScope.launch {
             try {
                 repository.updateCashDesk(cashDesk)
-                _statusMessage.value = "اطلاعات صندوق به روزرسانی شد."
+                _statusMessage.value = "اطلاعات صندوق به‌روزرسانی شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در ویرایش صندوق: ${e.localizedMessage}"
@@ -224,7 +389,7 @@ class TreasuryViewModel(
                         posTerminalId = posTerminalId
                     )
                 )
-                _statusMessage.value = "حساب بانکی $bankName اضافه شد."
+                _statusMessage.value = "حساب بانکی $bankName با موفقیت تعریف شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در ثبت حساب بانکی: ${e.localizedMessage}"
@@ -236,7 +401,7 @@ class TreasuryViewModel(
         viewModelScope.launch {
             try {
                 repository.updateBankAccount(account)
-                _statusMessage.value = "اطلاعات حساب بانکی به روزرسانی شد."
+                _statusMessage.value = "اطلاعات حساب بانکی به‌روزرسانی شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در ویرایش حساب بانکی: ${e.localizedMessage}"
@@ -250,20 +415,20 @@ class TreasuryViewModel(
                 repository.deleteBankAccount(account)
                 _statusMessage.value = "حساب بانکی ${account.bankName} حذف شد."
             } catch (e: Exception) {
-                _statusMessage.value = "امکان حذف این حساب بانکی به دلیل داشتن تراکنش‌های مالی وجود ندارد."
+                _statusMessage.value = "امکان حذف این حساب بانکی به دلیل داشتن تراکنش وجود ندارد."
             }
         }
     }
 
     /**
-     * ثبت عملیات دریافت وجه / درآمد
+     * ثبت عملیات دریافت وجه / درآمد واقعی در دیتابیس
      */
     fun registerIncome(
         title: String,
         amount: Long,
         destinationType: String, // "CASH" or "BANK"
         targetId: Long,
-        category: String, // "فروش خدمات", "سایر درآمدها", "دریافت از مشتری"
+        category: String,
         notes: String,
         onSuccess: () -> Unit
     ) {
@@ -272,57 +437,44 @@ class TreasuryViewModel(
                 _statusMessage.value = "مبلغ درآمد باید بیشتر از صفر باشد."
                 return@launch
             }
-            if (destinationType == "CASH") {
-                repository.updateCashBalance(targetId, amount)
-            } else {
-                repository.updateBankBalance(targetId, amount)
-            }
+            try {
+                val accName = if (destinationType == "CASH") {
+                    allCashDesks.value.firstOrNull { it.id == targetId }?.name ?: "صندوق نقدی"
+                } else {
+                    allBankAccounts.value.firstOrNull { it.id == targetId }?.bankName ?: "حساب بانکی"
+                }
 
-            // سند دوبل حسابداری
-            val today = JalaliDate.now()
-            val subCode = if (destinationType == "CASH") 10101 else 10102
-            val journalItems = listOf(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 101,
-                    subsidiaryCode = subCode,
-                    description = "دریافت $title به ${if (destinationType == "CASH") "صندوق" else "بانک"}",
-                    debit = amount,
-                    credit = 0L
-                ),
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 601,
-                    subsidiaryCode = 60101,
-                    description = "ثبت درآمد $title - $category",
-                    debit = 0L,
-                    credit = amount
+                val incomeEntity = IncomeEntity(
+                    categoryId = 1L,
+                    categoryTitle = category.ifBlank { "درآمد متفرقه" },
+                    amount = amount,
+                    jalaliDate = JalaliDate.now().toStandardString(),
+                    timestamp = System.currentTimeMillis(),
+                    depositMethod = destinationType,
+                    cashDeskId = if (destinationType == "CASH") targetId else null,
+                    bankAccountId = if (destinationType == "BANK") targetId else null,
+                    accountName = accName,
+                    title = title,
+                    notes = notes
                 )
-            )
-            accountingRepo.createJournalVoucher(
-                JournalEntryEntity(
-                    voucherNumber = 0L,
-                    jalaliDate = today.toStandardString(),
-                    description = "سند دریافت درآمد: $title",
-                    isBalanced = true,
-                    status = "FINAL"
-                ),
-                journalItems
-            )
-            _statusMessage.value = "دریافت وجه $title با موفقیت ثبت شد."
-            onSuccess()
+                expenseRepo.createIncome(incomeEntity)
+                _statusMessage.value = "دریافت وجه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان ثبت شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ثبت دریافت وجه: ${e.localizedMessage}"
+            }
         }
     }
 
     /**
-     * ثبت هزینه / پرداخت
+     * ثبت هزینه / پرداخت واقعی در دیتابیس
      */
     fun registerExpense(
         title: String,
         amount: Long,
         sourceType: String, // "CASH" or "BANK"
         sourceId: Long,
-        category: String, // "حقوق و دستمزد", "کرایه و حمل", "ملزومات و قبوض", "سایر هزینه‌ها"
+        category: String,
         notes: String,
         onSuccess: () -> Unit
     ) {
@@ -331,46 +483,32 @@ class TreasuryViewModel(
                 _statusMessage.value = "مبلغ هزینه باید بیشتر از صفر باشد."
                 return@launch
             }
-            if (sourceType == "CASH") {
-                repository.updateCashBalance(sourceId, -amount)
-            } else {
-                repository.updateBankBalance(sourceId, -amount)
-            }
+            try {
+                val accName = if (sourceType == "CASH") {
+                    allCashDesks.value.firstOrNull { it.id == sourceId }?.name ?: "صندوق نقدی"
+                } else {
+                    allBankAccounts.value.firstOrNull { it.id == sourceId }?.bankName ?: "حساب بانکی"
+                }
 
-            // سند دوبل حسابداری
-            val today = JalaliDate.now()
-            val subCode = if (sourceType == "CASH") 10101 else 10102
-            val expSubCode = if (category.contains("حقوق")) 80101 else 80102
-            val journalItems = listOf(
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 801,
-                    subsidiaryCode = expSubCode,
-                    description = "هزینه $title ($category)",
-                    debit = amount,
-                    credit = 0L
-                ),
-                JournalItemEntity(
-                    voucherId = 0L,
-                    generalCode = 101,
-                    subsidiaryCode = subCode,
-                    description = "پرداخت از ${if (sourceType == "CASH") "صندوق" else "بانک"}",
-                    debit = 0L,
-                    credit = amount
+                val expenseEntity = ExpenseEntity(
+                    categoryId = 1L,
+                    categoryTitle = category.ifBlank { "هزینه عمومی" },
+                    amount = amount,
+                    jalaliDate = JalaliDate.now().toStandardString(),
+                    timestamp = System.currentTimeMillis(),
+                    paymentMethod = sourceType,
+                    cashDeskId = if (sourceType == "CASH") sourceId else null,
+                    bankAccountId = if (sourceType == "BANK") sourceId else null,
+                    accountName = accName,
+                    title = title,
+                    notes = notes
                 )
-            )
-            accountingRepo.createJournalVoucher(
-                JournalEntryEntity(
-                    voucherNumber = 0L,
-                    jalaliDate = today.toStandardString(),
-                    description = "سند پرداخت هزینه: $title",
-                    isBalanced = true,
-                    status = "FINAL"
-                ),
-                journalItems
-            )
-            _statusMessage.value = "پرداخت هزینه $title با موفقیت ثبت شد."
-            onSuccess()
+                expenseRepo.createExpense(expenseEntity)
+                _statusMessage.value = "پرداخت هزینه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان ثبت شد."
+                onSuccess()
+            } catch (e: Exception) {
+                _statusMessage.value = "خطا در ثبت پرداخت هزینه: ${e.localizedMessage}"
+            }
         }
     }
 
@@ -421,7 +559,7 @@ class TreasuryViewModel(
                 ),
                 journalItems
             )
-            _statusMessage.value = "ثبت سرمایه $investorName با موفقیت انجام شد."
+            _statusMessage.value = "ثبت آورده سرمایه «$investorName» با موفقیت انجام شد."
             onSuccess()
         }
     }
@@ -440,7 +578,7 @@ class TreasuryViewModel(
     ) {
         viewModelScope.launch {
             if (amount <= 0) {
-                _statusMessage.value = "مبلغ انتقال باید معتبر باشد."
+                _statusMessage.value = "مبلغ انتقال باید بیشتر از صفر باشد."
                 return@launch
             }
             if (fromType == "CASH") repository.updateCashBalance(fromId, -amount)
@@ -448,6 +586,18 @@ class TreasuryViewModel(
 
             if (toType == "CASH") repository.updateCashBalance(toId, amount)
             else repository.updateBankBalance(toId, amount)
+
+            val fromName = if (fromType == "CASH") {
+                allCashDesks.value.firstOrNull { it.id == fromId }?.name ?: "صندوق"
+            } else {
+                allBankAccounts.value.firstOrNull { it.id == fromId }?.bankName ?: "بانک"
+            }
+
+            val toName = if (toType == "CASH") {
+                allCashDesks.value.firstOrNull { it.id == toId }?.name ?: "صندوق"
+            } else {
+                allBankAccounts.value.firstOrNull { it.id == toId }?.bankName ?: "بانک"
+            }
 
             val today = JalaliDate.now()
             val fromSub = if (fromType == "CASH") 10101 else 10102
@@ -458,7 +608,7 @@ class TreasuryViewModel(
                     voucherId = 0L,
                     generalCode = 101,
                     subsidiaryCode = toSub,
-                    description = "انتقال وجه وارده به ${if (toType == "CASH") "صندوق" else "بانک"}",
+                    description = "انتقال وجه وارده به $toName بابت جابجایی از $fromName",
                     debit = amount,
                     credit = 0L
                 ),
@@ -466,7 +616,7 @@ class TreasuryViewModel(
                     voucherId = 0L,
                     generalCode = 101,
                     subsidiaryCode = fromSub,
-                    description = "خروج وجه از ${if (fromType == "CASH") "صندوق" else "بانک"}",
+                    description = "خروج وجه از $fromName بابت انتقال به $toName",
                     debit = 0L,
                     credit = amount
                 )
@@ -475,13 +625,13 @@ class TreasuryViewModel(
                 JournalEntryEntity(
                     voucherNumber = 0L,
                     jalaliDate = today.toStandardString(),
-                    description = "سند انتقال وجه بین حساب‌ها/صندوق‌ها",
+                    description = "انتقال وجه بین حساب‌ها: از $fromName به $toName ${notes.ifBlank { "" }}",
                     isBalanced = true,
                     status = "FINAL"
                 ),
                 journalItems
             )
-            _statusMessage.value = "انتقال وجه با موفقیت انجام شد."
+            _statusMessage.value = "انتقال وجه مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان با موفقیت انجام شد."
             onSuccess()
         }
     }
