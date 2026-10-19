@@ -35,12 +35,13 @@ jobs:
         run: |
           chmod +x ./gradlew
           
-          if [ ! -f debug.keystore ]; then
-            if [ -f debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-            else
-              keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-            fi
+          # Restore the permanent debug keystore from debug.keystore.base64
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Permanent debug keystore restored from debug.keystore.base64"
+          elif [ ! -f debug.keystore ]; then
+            echo "ERROR: debug.keystore.base64 not found! Stopping to prevent inconsistent random signing key."
+            exit 1
           fi
 
           if [ ! -f .env.example ]; then
@@ -58,7 +59,7 @@ jobs:
       - name: Build Debug APK
         env:
           JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
-        run: ./gradlew assembleDebug -x test --no-daemon --stacktrace
+        run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }} -x test --no-daemon --stacktrace
 
       - name: Create Release and Upload APK
         uses: ncipollo/release-action@v1
@@ -66,6 +67,6 @@ jobs:
           artifacts: "app/build/outputs/apk/debug/app-debug.apk"
           tag: "v1.0.${{ github.run_number }}"
           name: "Goli Accounting App v1.0.${{ github.run_number }}"
-          body: "دانلود مستقیم فایل APK برنامه حسابداری گلی"
+          body: "دانلود مستقیم فایل APK برنامه حسابداری گلی (امضا شده با کلید دائمی و قابلیت به‌روزرسانی مستقیم)"
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true

@@ -16,8 +16,9 @@ android {
     applicationId = "com.aistudio.goliaccounting.kxrvzt"
     minSdk = 29
     targetSdk = 35
-    versionCode = 1
-    versionName = "1.0"
+    val ciVersionCode = project.findProperty("versionCode")?.toString()?.toIntOrNull()
+    versionCode = ciVersionCode ?: 2
+    versionName = if (ciVersionCode != null) "1.0.$ciVersionCode" else "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
