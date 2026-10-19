@@ -24,8 +24,17 @@ class PartyViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _selectedTab = MutableStateFlow(0) // 0: Customers, 1: Suppliers, 2: Over Credit Limit
+    private val _selectedTab = MutableStateFlow(0) // 0: Customers, 1: Suppliers, 2: Debtors, 3: Over Credit Limit
     val selectedTab: StateFlow<Int> = _selectedTab.asStateFlow()
+
+    val allParties: StateFlow<List<PartyEntity>> = partyRepository.allParties
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalReceivables: StateFlow<Long> = partyRepository.totalReceivables
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val totalPayables: StateFlow<Long> = partyRepository.totalPayables
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     val filteredParties: StateFlow<List<PartyEntity>> = combine(
         partyRepository.allParties,
@@ -47,7 +56,8 @@ class PartyViewModel(
             val matchesTab = when (tab) {
                 0 -> p.partyType in listOf("CUSTOMER", "BOTH")
                 1 -> p.partyType in listOf("SUPPLIER", "BOTH")
-                2 -> p.isCreditLimitExceeded()
+                2 -> p.currentBalance > 0
+                3 -> p.isCreditLimitExceeded()
                 else -> true
             }
 
