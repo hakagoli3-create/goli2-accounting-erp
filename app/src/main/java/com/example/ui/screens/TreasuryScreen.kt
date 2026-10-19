@@ -580,7 +580,7 @@ private fun LiquidityAndAccountsContent(
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
-                                    text = NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(totalLiquidity)),
+                                    text = NumberFormatUtils.formatPriceOnlyNumber(totalLiquidity),
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = MatteGold
@@ -627,7 +627,7 @@ private fun LiquidityAndAccountsContent(
                                 color = Color.White.copy(alpha = 0.7f)
                             )
                             Text(
-                                text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(totalBank))} تومان",
+                                text = NumberFormatUtils.formatPrice(totalBank),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -641,7 +641,7 @@ private fun LiquidityAndAccountsContent(
                                 color = Color.White.copy(alpha = 0.7f)
                             )
                             Text(
-                                text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(totalCash))} تومان",
+                                text = NumberFormatUtils.formatPrice(totalCash),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = AccountingDebitGreen
@@ -773,7 +773,7 @@ private fun LiquidityAndAccountsContent(
                 }
             }
         } else {
-            items(bankAccounts, key = { it.id }) { acc ->
+            items(bankAccounts, key = { "bank_${it.id}" }) { acc ->
                 BankAccountCardItem(
                     account = acc,
                     canManage = canManage,
@@ -825,7 +825,7 @@ private fun LiquidityAndAccountsContent(
                 }
             }
         } else {
-            items(cashDesks, key = { it.id }) { desk ->
+            items(cashDesks, key = { "cash_${it.id}" }) { desk ->
                 CashDeskCardItem(
                     desk = desk,
                     canManage = canManage,
@@ -887,7 +887,7 @@ private fun TransactionsAndTurnoverContent(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(totalInflow))} تومان",
+                            text = NumberFormatUtils.formatPrice(totalInflow),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = AccountingDebitGreen
@@ -909,7 +909,7 @@ private fun TransactionsAndTurnoverContent(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(totalOutflow))} تومان",
+                            text = NumberFormatUtils.formatPrice(totalOutflow),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = AccountingCreditRed
@@ -1083,7 +1083,7 @@ private fun TransactionsAndTurnoverContent(
                 }
             }
         } else {
-            items(transactions, key = { it.id }) { tx ->
+            items(transactions, key = { "tx_${it.id}" }) { tx ->
                 TransactionCardItem(transaction = tx)
             }
         }
@@ -1181,7 +1181,7 @@ private fun TransactionCardItem(transaction: TreasuryTransaction) {
             Column(horizontalAlignment = Alignment.End) {
                 if (transaction.amount > 0) {
                     Text(
-                        text = (if (isIncome) "+" else "-") + NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(transaction.amount)) + " تومان",
+                        text = (if (isIncome) "+" else "-") + NumberFormatUtils.formatPrice(transaction.amount),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.ExtraBold,
                             color = accentColor,
@@ -1310,7 +1310,7 @@ private fun BankAccountCardItem(
                 Column {
                     Text(text = "موجودی حساب:", fontSize = 10.sp, color = TextDarkSecondary)
                     Text(
-                        text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(account.currentBalance))} تومان",
+                        text = NumberFormatUtils.formatPrice(account.currentBalance),
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
                             color = NavyPrimary,
@@ -1395,7 +1395,7 @@ private fun CashDeskCardItem(
                 Column {
                     Text(text = "موجودی صندوق نقدی:", fontSize = 10.sp, color = TextDarkSecondary)
                     Text(
-                        text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(desk.currentBalance))} تومان",
+                        text = NumberFormatUtils.formatPrice(desk.currentBalance),
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
                             color = AccountingDebitGreen,
@@ -1538,7 +1538,7 @@ private fun ChequesContent(
                 }
             }
         } else {
-            items(displayedCheques) { cheque ->
+            items(displayedCheques, key = { "cheque_${it.id}" }) { cheque ->
                 var menuExpanded by remember { mutableStateOf(false) }
 
                 val isOverdue = cheque.isOverdue()
@@ -1654,7 +1654,7 @@ private fun ChequesContent(
                             Column {
                                 Text(text = "مبلغ چک:", fontSize = 10.sp, color = TextDarkSecondary)
                                 Text(
-                                    text = "${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(cheque.amount))} تومان",
+                                    text = NumberFormatUtils.formatPrice(cheque.amount),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = NavyPrimary
@@ -1834,6 +1834,7 @@ private fun TreasuryOperationsContent(
                 }
             }
         }
+        Spacer(modifier = Modifier.height(90.dp))
     }
 }
 
@@ -2268,7 +2269,7 @@ private fun TreasuryActionDialog(
                             modifier = Modifier.fillMaxWidth().clickable { selectedCashId = c.id }
                         ) {
                             Text(
-                                text = "${c.name} (مانده: ${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(c.currentBalance))} ت)",
+                                text = "${c.name} (مانده: ${NumberFormatUtils.formatPrice(c.currentBalance)})",
                                 fontWeight = if (selectedCashId == c.id) FontWeight.Bold else FontWeight.Normal,
                                 color = if (selectedCashId == c.id) NavyPrimary else TextDarkPrimary,
                                 fontSize = 12.sp,
@@ -2284,7 +2285,7 @@ private fun TreasuryActionDialog(
                             modifier = Modifier.fillMaxWidth().clickable { selectedBankId = b.id }
                         ) {
                             Text(
-                                text = "${b.bankName} (مانده: ${NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(b.currentBalance))} ت)",
+                                text = "${b.bankName} (مانده: ${NumberFormatUtils.formatPrice(b.currentBalance)})",
                                 fontWeight = if (selectedBankId == b.id) FontWeight.Bold else FontWeight.Normal,
                                 color = if (selectedBankId == b.id) NavyPrimary else TextDarkPrimary,
                                 fontSize = 12.sp,

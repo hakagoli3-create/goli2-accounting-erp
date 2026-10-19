@@ -323,7 +323,7 @@ fun ProductCardItem(
                         )
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
-                                text = NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(product.retailPrice)),
+                                text = NumberFormatUtils.formatPriceOnlyNumber(product.retailPrice),
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = NavyPrimary,
@@ -350,7 +350,7 @@ fun ProductCardItem(
                             )
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
-                                    text = NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(product.wholesalePrice)),
+                                    text = NumberFormatUtils.formatPriceOnlyNumber(product.wholesalePrice),
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
                                         color = TextDarkPrimary,
@@ -377,7 +377,7 @@ fun ProductCardItem(
                         )
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
-                                text = NumberFormatUtils.toPersianDigits(NumberFormatUtils.formatPrice(product.buyPrice)),
+                                text = NumberFormatUtils.formatPriceOnlyNumber(product.buyPrice),
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.Medium,
                                     color = TextDarkMuted,

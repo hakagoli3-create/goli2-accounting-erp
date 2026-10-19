@@ -458,7 +458,7 @@ class TreasuryViewModel(
                     notes = notes
                 )
                 expenseRepo.createIncome(incomeEntity)
-                _statusMessage.value = "دریافت وجه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان ثبت شد."
+                _statusMessage.value = "دریافت وجه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} ثبت شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در ثبت دریافت وجه: ${e.localizedMessage}"
@@ -504,7 +504,7 @@ class TreasuryViewModel(
                     notes = notes
                 )
                 expenseRepo.createExpense(expenseEntity)
-                _statusMessage.value = "پرداخت هزینه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان ثبت شد."
+                _statusMessage.value = "پرداخت هزینه «$title» به مبلغ ${NumberFormatUtils.formatPrice(amount)} ثبت شد."
                 onSuccess()
             } catch (e: Exception) {
                 _statusMessage.value = "خطا در ثبت پرداخت هزینه: ${e.localizedMessage}"
@@ -631,7 +631,7 @@ class TreasuryViewModel(
                 ),
                 journalItems
             )
-            _statusMessage.value = "انتقال وجه مبلغ ${NumberFormatUtils.formatPrice(amount)} تومان با موفقیت انجام شد."
+            _statusMessage.value = "انتقال وجه مبلغ ${NumberFormatUtils.formatPrice(amount)} با موفقیت انجام شد."
             onSuccess()
         }
     }
