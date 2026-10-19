@@ -101,6 +101,7 @@ class InventoryViewModel(
         wholesalePrice: Long,
         partnerPrice: Long,
         description: String,
+        imageUri: String? = null,
         warehouseId: Long? = null,
         onSuccess: () -> Unit
     ) {
@@ -119,7 +120,8 @@ class InventoryViewModel(
                 retailPrice = retailPrice,
                 wholesalePrice = wholesalePrice,
                 partnerPrice = partnerPrice,
-                description = description
+                description = description,
+                imageUri = imageUri
             )
             val productId = repository.insertProduct(product)
             if (initialStockSecondary > 0) {

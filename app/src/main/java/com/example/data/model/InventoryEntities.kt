@@ -39,7 +39,8 @@ data class ProductEntity(
     val retailPrice: Long = 0L, // قیمت مصرف‌کننده و خرده‌فروشی
     val wholesalePrice: Long = 0L, // قیمت عمده‌فروشی
     val partnerPrice: Long = 0L, // قیمت همکاری
-    val description: String = ""
+    val description: String = "",
+    val imageUri: String? = null
 ) {
     /**
      * محاسبه موجودی به صورت نمایش ترکیبی: مثلا "۲ کارتن و ۵ عدد"

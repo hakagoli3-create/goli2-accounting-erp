@@ -20,6 +20,10 @@ object NumberFormatUtils {
         return sb.toString()
     }
 
+    fun toPersianDigits(number: Number): String {
+        return toPersianDigits(number.toString())
+    }
+
     fun toEnglishDigits(text: String): String {
         return text
             .replace('۰', '0')
