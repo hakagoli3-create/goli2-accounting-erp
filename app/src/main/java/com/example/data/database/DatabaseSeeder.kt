@@ -622,6 +622,32 @@ object DatabaseSeeder {
                     )
                 )
             }
+            val sellerUser = db.userDao().getUserByUsername("seller")
+            if (sellerUser == null) {
+                db.userDao().insertUser(
+                    com.example.data.model.UserEntity(
+                        username = "seller",
+                        passwordHash = "1234",
+                        fullName = "علی فروشنده (صندوق‌دار)",
+                        role = "POS_USER",
+                        mobile = "09123334455",
+                        isActive = true
+                    )
+                )
+            }
+            val visitorUser = db.userDao().getUserByUsername("visitor")
+            if (visitorUser == null) {
+                db.userDao().insertUser(
+                    com.example.data.model.UserEntity(
+                        username = "visitor",
+                        passwordHash = "1234",
+                        fullName = "رضا ویزیتور (بازاریاب)",
+                        role = "VISITOR",
+                        mobile = "09127778899",
+                        isActive = true
+                    )
+                )
+            }
         } catch (_: Exception) {
             // Ignore if already existing
         }

@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
 
     steps:
       - name: Checkout Code
@@ -33,18 +34,36 @@ jobs:
 
       - name: Prepare Keystore, Environment and Google Services
         run: |
+          # Ensure gradlew has Linux LF line endings and executable permission
+          sed -i -e 's/\r$//' ./gradlew || true
           chmod +x ./gradlew
           
-          if [ ! -f debug.keystore ]; then
-            if [ -f debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-            else
-              keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-            fi
+          # Restore the permanent debug keystore with ignore-garbage flag
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d -i debug.keystore.base64 > debug.keystore 2>/dev/null || base64 --decode debug.keystore.base64 > debug.keystore
+            echo "Permanent debug keystore restored from debug.keystore.base64 file"
+          elif [ -f debug.keystore ]; then
+            echo "debug.keystore already present"
+          else
+            echo "Restoring permanent debug keystore from embedded signature..."
+            cat << 'KEYSTORE_EOF' | base64 -d -i > debug.keystore
+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
+KEYSTORE_EOF
+            echo "Permanent debug keystore restored from embedded signature."
           fi
 
-          echo 'GEMINI_API_KEY="dummy_key"' > .env.example
-          echo 'GEMINI_API_KEY="dummy_key"' > .env
+          if [ ! -f debug.keystore ]; then
+            echo "ERROR: Failed to restore debug.keystore!"
+            exit 1
+          fi
+
+          if [ ! -f .env.example ]; then
+            echo 'GEMINI_API_KEY=""' > .env.example
+          fi
+
+          if [ ! -f .env ]; then
+            echo 'GEMINI_API_KEY=""' > .env
+          fi
 
           if [ ! -f app/google-services.json ]; then
             echo '{"project_info":{"project_number":"140084369102","project_id":"goli-accounting-erp","storage_bucket":"goli-accounting-erp.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:140084369102:android:65a4bc837d9210ef821bc1","android_client_info":{"package_name":"com.aistudio.goliaccounting.kxrvzt"}},"oauth_client":[],"api_key":[{"current_key":"AIzaSyDummyKeyForGoliAccountingOnlineSync123"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],"configuration_version":"1"}' > app/google-services.json
@@ -52,15 +71,24 @@ jobs:
 
       - name: Build Debug APK
         env:
-          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
+          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
         run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }} -x test --no-daemon --stacktrace
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Goli-Accounting-APK-v1.0.${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Create Release and Upload APK
         uses: ncipollo/release-action@v1
+        continue-on-error: true
         with:
           artifacts: "app/build/outputs/apk/debug/app-debug.apk"
           tag: "v1.0.${{ github.run_number }}"
           name: "Goli Accounting App v1.0.${{ github.run_number }}"
-          body: "دانلود مستقیم فایل APK برنامه حسابداری گلی"
+          body: "دانلود مستقیم فایل APK برنامه حسابداری گلی (امضا شده با کلید دائمی و قابلیت به‌روزرسانی مستقیم)"
           token: ${{ secrets.GITHUB_TOKEN }}
           allowUpdates: true

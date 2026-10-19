@@ -27,14 +27,17 @@ object BluetoothThermalPrinter {
         val adapter = bluetoothManager?.adapter ?: BluetoothAdapter.getDefaultAdapter() ?: return emptyList()
 
         return try {
-            adapter.bondedDevices.map { device ->
+            val devices = adapter.bondedDevices ?: return emptyList()
+            devices.map { device ->
                 PairedPrinter(
                     name = device.name ?: "پرینتر بلوتوثی ناشناس",
-                    address = device.address,
+                    address = device.address ?: "",
                     device = device
                 )
             }
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
+            emptyList()
+        } catch (_: Exception) {
             emptyList()
         }
     }

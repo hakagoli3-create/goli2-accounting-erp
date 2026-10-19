@@ -95,8 +95,10 @@ class InvoiceRepository(
         // به روزرسانی مانده حساب طرف حساب (مشتری یا تأمین‌کننده)
         if (invoice.partyId != null && creditInBase > 0) {
             val factor = when (invoice.invoiceType) {
-                "SALE", "POS_SALE", "PURCHASE" -> 1L
-                "RETURN_SALE", "RETURN_PURCHASE" -> -1L
+                "SALE", "POS_SALE" -> 1L // بدهکار شدن مشتری
+                "PURCHASE" -> -1L // بستانکار شدن تامین‌کننده (بدهی ما به تامین‌کننده)
+                "RETURN_SALE" -> -1L // کاهش بدهی مشتری
+                "RETURN_PURCHASE" -> 1L // کاهش بدهی ما به تامین‌کننده
                 else -> 1L
             }
             partyDao.updatePartyBalance(invoice.partyId, factor * creditInBase)
@@ -381,8 +383,10 @@ class InvoiceRepository(
         try {
             if (invoice.partyId != null && creditInBase > 0) {
                 val factor = when (invoice.invoiceType) {
-                    "SALE", "POS_SALE", "PURCHASE" -> -1L
-                    "RETURN_SALE", "RETURN_PURCHASE" -> 1L
+                    "SALE", "POS_SALE" -> -1L
+                    "PURCHASE" -> 1L
+                    "RETURN_SALE" -> 1L
+                    "RETURN_PURCHASE" -> -1L
                     else -> -1L
                 }
                 partyDao.updatePartyBalance(invoice.partyId, factor * creditInBase)
