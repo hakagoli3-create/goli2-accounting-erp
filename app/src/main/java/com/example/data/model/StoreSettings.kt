@@ -6,6 +6,8 @@ import com.example.data.database.AppDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 enum class UserRole(
     val code: String,
@@ -70,6 +72,17 @@ data class StoreProfile(
     val wholesaleDiscountLimitPercent: Int = 25
 )
 
+data class CurrencyItem(
+    val code: String,
+    val nameFa: String,
+    val symbol: String,
+    val exchangeRateToBase: Double = 1.0,
+    val isActive: Boolean = true,
+    val isBaseCurrency: Boolean = false,
+    val isDefaultInvoiceCurrency: Boolean = false,
+    val decimals: Int = 0
+)
+
 enum class CloudSyncStatus(val title: String) {
     ONLINE_SYNCED("همگام‌سازی ابری فعال و آنلاین"),
     SYNCING("در حال ارسال و دریافت اطلاعات ابری..."),
@@ -79,6 +92,10 @@ enum class CloudSyncStatus(val title: String) {
 
 class AppSecurityAndSettingsManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("goli_erp_settings", Context.MODE_PRIVATE)
+
+    // Currencies State
+    private val _currencies = MutableStateFlow<List<CurrencyItem>>(loadInitialCurrencies())
+    val currencies: StateFlow<List<CurrencyItem>> = _currencies.asStateFlow()
 
     // Session status - defaults to false on first launch to show LoginScreen as start destination
     private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
@@ -223,6 +240,141 @@ class AppSecurityAndSettingsManager(context: Context) {
             _lastSyncTime.value = time
             prefs.edit().putString("last_sync_time", time).apply()
         }
+    }
+
+    // ==========================================
+    // CURRENCY MANAGEMENT
+    // ==========================================
+
+    private fun loadInitialCurrencies(): List<CurrencyItem> {
+        val rawJson = prefs.getString("system_currencies", null)
+        if (!rawJson.isNullOrBlank()) {
+            try {
+                val array = JSONArray(rawJson)
+                val list = mutableListOf<CurrencyItem>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        CurrencyItem(
+                            code = obj.optString("code", "TOMAN"),
+                            nameFa = obj.optString("nameFa", "تومان"),
+                            symbol = obj.optString("symbol", "تومان"),
+                            exchangeRateToBase = obj.optDouble("exchangeRateToBase", 1.0),
+                            isActive = obj.optBoolean("isActive", true),
+                            isBaseCurrency = obj.optBoolean("isBaseCurrency", false),
+                            isDefaultInvoiceCurrency = obj.optBoolean("isDefaultInvoiceCurrency", false),
+                            decimals = obj.optInt("decimals", 0)
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) return list
+            } catch (_: Exception) {}
+        }
+
+        // Default initial standard currencies
+        return listOf(
+            CurrencyItem("TOMAN", "تومان", "تومان", 1.0, isActive = true, isBaseCurrency = true, isDefaultInvoiceCurrency = true, decimals = 0),
+            CurrencyItem("IRR", "ریال ایران", "ریال", 0.1, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 0),
+            CurrencyItem("USD", "دلار آمریکا", "$", 92000.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+            CurrencyItem("EUR", "یورو", "€", 101000.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+            CurrencyItem("TRY", "لیر ترکیه", "₺", 2650.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+            CurrencyItem("IQD", "دینار عراق", "د.ع", 62.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 0)
+        )
+    }
+
+    fun getDefaultCurrenciesList(): List<CurrencyItem> = listOf(
+        CurrencyItem("TOMAN", "تومان", "تومان", 1.0, isActive = true, isBaseCurrency = true, isDefaultInvoiceCurrency = true, decimals = 0),
+        CurrencyItem("IRR", "ریال ایران", "ریال", 0.1, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 0),
+        CurrencyItem("USD", "دلار آمریکا", "$", 92000.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+        CurrencyItem("EUR", "یورو", "€", 101000.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+        CurrencyItem("TRY", "لیر ترکیه", "₺", 2650.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 2),
+        CurrencyItem("IQD", "دینار عراق", "د.ع", 62.0, isActive = true, isBaseCurrency = false, isDefaultInvoiceCurrency = false, decimals = 0)
+    )
+
+    fun resetToDefaultCurrencies() {
+        saveCurrencies(getDefaultCurrenciesList())
+    }
+
+    fun saveCurrencies(list: List<CurrencyItem>) {
+        _currencies.value = list
+        try {
+            val array = JSONArray()
+            for (item in list) {
+                val obj = JSONObject()
+                obj.put("code", item.code)
+                obj.put("nameFa", item.nameFa)
+                obj.put("symbol", item.symbol)
+                obj.put("exchangeRateToBase", item.exchangeRateToBase)
+                obj.put("isActive", item.isActive)
+                obj.put("isBaseCurrency", item.isBaseCurrency)
+                obj.put("isDefaultInvoiceCurrency", item.isDefaultInvoiceCurrency)
+                obj.put("decimals", item.decimals)
+                array.put(obj)
+            }
+            prefs.edit().putString("system_currencies", array.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun setBaseCurrency(code: String) {
+        val current = _currencies.value
+        val updated = current.map { item ->
+            val isBase = item.code.equals(code, ignoreCase = true)
+            item.copy(
+                isBaseCurrency = isBase,
+                isActive = if (isBase) true else item.isActive,
+                exchangeRateToBase = if (isBase) 1.0 else item.exchangeRateToBase
+            )
+        }
+        saveCurrencies(updated)
+    }
+
+    fun setDefaultInvoiceCurrency(code: String) {
+        val current = _currencies.value
+        val updated = current.map { item ->
+            val isDefault = item.code.equals(code, ignoreCase = true)
+            item.copy(
+                isDefaultInvoiceCurrency = isDefault,
+                isActive = if (isDefault) true else item.isActive
+            )
+        }
+        saveCurrencies(updated)
+    }
+
+    fun updateCurrency(updatedItem: CurrencyItem) {
+        val current = _currencies.value
+        val updated = current.map { item ->
+            if (item.code.equals(updatedItem.code, ignoreCase = true)) updatedItem else item
+        }
+        saveCurrencies(updated)
+    }
+
+    fun addCurrency(newItem: CurrencyItem) {
+        val current = _currencies.value.toMutableList()
+        val existingIndex = current.indexOfFirst { it.code.equals(newItem.code, ignoreCase = true) }
+        if (existingIndex >= 0) {
+            current[existingIndex] = newItem
+        } else {
+            current.add(newItem)
+        }
+        saveCurrencies(current)
+    }
+
+    fun toggleCurrencyActive(code: String, isActive: Boolean) {
+        val current = _currencies.value
+        val updated = current.map { item ->
+            if (item.code.equals(code, ignoreCase = true)) {
+                // Cannot deactivate base currency
+                if (item.isBaseCurrency && !isActive) item else item.copy(isActive = isActive)
+            } else item
+        }
+        saveCurrencies(updated)
+    }
+
+    fun deleteCurrency(code: String) {
+        val current = _currencies.value
+        // Protect base currency from deletion
+        val updated = current.filterNot { it.code.equals(code, ignoreCase = true) && !it.isBaseCurrency }
+        saveCurrencies(updated)
     }
 
     companion object {

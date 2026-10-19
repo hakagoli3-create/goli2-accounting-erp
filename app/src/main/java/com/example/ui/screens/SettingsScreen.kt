@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DarkMode
@@ -36,7 +37,12 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.example.ui.components.CurrencyManagementSection
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Save
@@ -121,6 +127,7 @@ fun SettingsScreen(
     val tabs = listOf(
         "مدیریت کاربران و امنیت",
         "مشخصات بازرگانی",
+        "مدیریت ارزها",
         "پشتیبان‌گیری و داده‌ها",
         "تنظیمات و چاپگر"
     )
@@ -159,7 +166,8 @@ fun SettingsScreen(
                                 imageVector = when (index) {
                                     0 -> Icons.Default.ManageAccounts
                                     1 -> Icons.Default.Business
-                                    2 -> Icons.Default.Storage
+                                    2 -> Icons.Default.CurrencyExchange
+                                    3 -> Icons.Default.Storage
                                     else -> Icons.Default.Settings
                                 },
                                 contentDescription = title,
@@ -196,6 +204,12 @@ fun SettingsScreen(
                         )
                     }
                     2 -> {
+                        // Currency Management Tab
+                        CurrencyManagementSection(
+                            securityManager = securityManager
+                        )
+                    }
+                    3 -> {
                         // Backup & Sync Tab
                         BackupAndSyncSection(
                             syncStatus = syncStatus,
@@ -203,7 +217,7 @@ fun SettingsScreen(
                             securityManager = securityManager
                         )
                     }
-                    3 -> {
+                    4 -> {
                         // General & Printers Tab
                         GeneralAndPrintersSection(
                             isDarkTheme = isDarkTheme,
